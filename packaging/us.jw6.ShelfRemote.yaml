@@ -119,10 +119,14 @@ modules:
       - -DCMAKE_BUILD_TYPE=RelWithDebInfo
       - -DSHELFREMOTE_BUILD_TESTS=OFF
     sources:
+      - type: file
+        path: ../CMakeLists.txt
       - type: dir
-        path: ..
-        skip:
-          - build
-          - build-flatpak
-          - .flatpak-builder
-          - .git
+        path: ../src
+        dest: src
+      - type: dir
+        path: ../qml
+        dest: qml
+      - type: dir
+        path: ../packaging
+        dest: packaging
