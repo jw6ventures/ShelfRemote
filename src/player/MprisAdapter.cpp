@@ -12,7 +12,9 @@ namespace {
 // Metadata (mpris:trackid) and SetPosition compare the exact same value.
 QString trackObjectPath(PlaybackSession *session)
 {
-    return QStringLiteral("/us/jw6/ShelfRemote/track/") +
+    QString appPath = AppConfig::appId();
+    appPath.replace(QLatin1Char('.'), QLatin1Char('/'));
+    return QStringLiteral("/") + appPath + QStringLiteral("/track/") +
            (session->itemId().isEmpty() ? QStringLiteral("none") : session->itemId());
 }
 } // namespace

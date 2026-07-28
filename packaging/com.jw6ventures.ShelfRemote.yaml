@@ -3,15 +3,15 @@
 # Build (host, no root needed):
 #   flatpak install --user flathub org.kde.Platform//6.10 org.kde.Sdk//6.10 org.flatpak.Builder
 #   flatpak run org.flatpak.Builder --user --install --force-clean \
-#       build-flatpak packaging/us.jw6.ShelfRemote.yaml
-#   flatpak run us.jw6.ShelfRemote
+#       build-flatpak packaging/com.jw6ventures.ShelfRemote.yaml
+#   flatpak run com.jw6ventures.ShelfRemote
 #
 # org.kde.Platform is just a bundled Qt runtime; it does NOT make the app
 # Plasma-only. No KDE Frameworks are linked. libmpv (and its deps) are built from
 # source below because no prebuilt libmpv exists in the runtime; ffmpeg, freetype,
 # fribidi and harfbuzz are provided by the runtime. The libmpv module stack mirrors
 # the mature org.kde.haruna recipe.
-app-id: us.jw6.ShelfRemote
+app-id: com.jw6ventures.ShelfRemote
 runtime: org.kde.Platform
 runtime-version: '6.10'
 sdk: org.kde.Sdk
@@ -25,7 +25,7 @@ finish-args:
   - --socket=pulseaudio      # audio playback
   - --device=dri             # GPU-accelerated QML rendering
   # MPRIS: owning our own well-known name does not require full session-bus access.
-  - --own-name=org.mpris.MediaPlayer2.us.jw6.ShelfRemote
+  - --own-name=org.mpris.MediaPlayer2.com.jw6ventures.ShelfRemote
   # Deliberately NOT granted: --socket=session-bus, --filesystem=home, --device=all
 
 cleanup:

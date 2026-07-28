@@ -15,12 +15,13 @@ inline QString version()    { return QStringLiteral(SHELFREMOTE_VERSION); }
 // jw6-shelfremote://oauth
 inline QString oauthRedirectUri() { return uriScheme() + QStringLiteral("://oauth"); }
 
-// org.mpris.MediaPlayer2.us.jw6.ShelfRemote
+// org.mpris.MediaPlayer2.com.jw6ventures.ShelfRemote
 inline QString mprisServiceName() {
     return QStringLiteral("org.mpris.MediaPlayer2.") + appId();
 }
 
-// Absolute path to the app data directory (XDG_DATA_HOME/us.jw6.ShelfRemote),
+// Absolute path to the app data directory
+// (XDG_DATA_HOME/com.jw6ventures.ShelfRemote),
 // created on demand. Holds the SQLite database and cover cache.
 QString dataDir();
 QString cacheDir();

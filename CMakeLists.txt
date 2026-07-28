@@ -16,7 +16,7 @@ endif()
 
 # Reverse-DNS application identity. Kept in one place; consumed by the C++ code,
 # the MPRIS name, and the packaging files.
-set(SHELFREMOTE_APP_ID "us.jw6.ShelfRemote")
+set(SHELFREMOTE_APP_ID "com.jw6ventures.ShelfRemote")
 set(SHELFREMOTE_URI_SCHEME "jw6-shelfremote")
 set(SHELFREMOTE_CLIENT_ID "ShelfRemote")
 

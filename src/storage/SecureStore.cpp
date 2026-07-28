@@ -323,7 +323,7 @@ QByteArray SecureStore::deriveKey(const QByteArray &context) const
 {
     // HKDF-SHA256 via the OpenSSL 3.x EVP_KDF one-shot interface.
     QByteArray key(kKeyLen, Qt::Uninitialized);
-    QByteArray salt = QByteArrayLiteral("us.jw6.ShelfRemote.hkdf.v1");
+    QByteArray salt = AppConfig::appId().toUtf8() + QByteArrayLiteral(".hkdf.v1");
     QByteArray info = context;
 
     EVP_KDF *kdf = EVP_KDF_fetch(nullptr, "HKDF", nullptr);

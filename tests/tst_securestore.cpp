@@ -72,7 +72,7 @@ private slots:
         // when the upgraded app runs under Flatpak, it must keep using that key
         // instead of switching to the portal and stranding the saved tokens.
         Database::instance().removeSetting(QStringLiteral("secretProvider"));
-        qputenv("FLATPAK_ID", QByteArrayLiteral("us.jw6.ShelfRemote"));
+        qputenv("FLATPAK_ID", QByteArrayLiteral("com.jw6ventures.ShelfRemote"));
 
         SecureStore migrated;
         SecureStore::RetrieveStatus st = SecureStore::RetrieveStatus::Missing;
@@ -91,7 +91,7 @@ private slots:
     {
         // A missing credential should not select or contact a provider at all.
         Database::instance().removeSetting(QStringLiteral("secretProvider"));
-        qputenv("FLATPAK_ID", QByteArrayLiteral("us.jw6.ShelfRemote"));
+        qputenv("FLATPAK_ID", QByteArrayLiteral("com.jw6ventures.ShelfRemote"));
 
         SecureStore s;
         SecureStore::RetrieveStatus st = SecureStore::RetrieveStatus::Ok;

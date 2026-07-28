@@ -8,8 +8,10 @@ name: Flatpak
 #
 # One-time setup in the GitHub repo:
 #   Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
-# Optional (recommended) signing: add repo secret FLATPAK_GPG_PRIVATE_KEY with a
+# Required for publication: add repo secret FLATPAK_GPG_PRIVATE_KEY with a
 #   base64-encoded exported *private* key:  gpg --export-secret-keys KEYID | base64 -w0
+# Pull requests may build unsigned because they never publish and cannot access
+# repository secrets from forks.
 on:
   push:
     branches: [main]
@@ -80,6 +82,8 @@ jobs:
   build:
     name: Build OSTree repo + bundle
     needs: test
+    outputs:
+      signed: ${{ steps.gpg.outputs.signed }}
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.10
@@ -94,27 +98,35 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .flatpak-builder
-          key: fpb-${{ runner.os }}-${{ hashFiles('packaging/us.jw6.ShelfRemote.yaml') }}
+          key: fpb-${{ runner.os }}-${{ hashFiles('packaging/com.jw6ventures.ShelfRemote.yaml') }}
           restore-keys: fpb-${{ runner.os }}-
 
-      - name: Import signing key (optional)
+      - name: Import signing key
         id: gpg
         env:
           GPG_KEY_B64: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -eu
           if [ -n "${GPG_KEY_B64:-}" ]; then
             export GNUPGHOME="$PWD/.gnupg"; mkdir -p "$GNUPGHOME"; chmod 700 "$GNUPGHOME"
             printf '%s' "$GPG_KEY_B64" | base64 -d | gpg --batch --homedir "$GNUPGHOME" --import
             KEYID=$(gpg --homedir "$GNUPGHOME" --list-secret-keys --with-colons | awk -F: '/^sec:/{print $5; exit}')
+            if [ -z "$KEYID" ]; then
+              echo "::error::FLATPAK_GPG_PRIVATE_KEY does not contain a secret key."
+              exit 1
+            fi
             gpg --homedir "$GNUPGHOME" --export "$KEYID" > "$PWD/shelfremote.gpg"
             echo "gpg_args=--gpg-sign=$KEYID --gpg-homedir=$GNUPGHOME" >> "$GITHUB_OUTPUT"
             echo "signed=true" >> "$GITHUB_OUTPUT"
             echo "Signing repo with key $KEYID"
-          else
+          elif [ "$EVENT_NAME" = "pull_request" ]; then
             echo "gpg_args=" >> "$GITHUB_OUTPUT"
             echo "signed=false" >> "$GITHUB_OUTPUT"
-            echo "No FLATPAK_GPG_PRIVATE_KEY secret; building an unsigned repo."
+            echo "No signing key is available to this pull request; building without publishing."
+          else
+            echo "::error::FLATPAK_GPG_PRIVATE_KEY is required for publication."
+            exit 1
           fi
 
       - name: Build and export to an OSTree repo
@@ -122,7 +134,7 @@ jobs:
           set -eu
           flatpak-builder --disable-rofiles-fuse --force-clean --ccache \
             --repo=repo ${{ steps.gpg.outputs.gpg_args }} \
-            builddir packaging/us.jw6.ShelfRemote.yaml
+            builddir packaging/com.jw6ventures.ShelfRemote.yaml
           flatpak build-update-repo --prune ${{ steps.gpg.outputs.gpg_args }} repo
 
       - name: Assemble Pages site
@@ -154,8 +166,8 @@ jobs:
           <h1>ShelfRemote &mdash; Flatpak repository</h1>
           <p>A remote-friendly Linux client for Audiobookshelf. Install and update it with Flatpak:</p>
           <pre>flatpak remote-add --if-not-exists ${GPGFLAG}shelfremote $BASE/shelfremote.flatpakrepo
-          flatpak install shelfremote us.jw6.ShelfRemote
-          flatpak run us.jw6.ShelfRemote</pre>
+          flatpak install shelfremote com.jw6ventures.ShelfRemote
+          flatpak run com.jw6ventures.ShelfRemote</pre>
           <p>Update later with <code>flatpak update</code>.</p>
           EOF
 
@@ -169,19 +181,19 @@ jobs:
         run: |
           set -eu
           flatpak build-bundle --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo \
-            repo us.jw6.ShelfRemote.flatpak us.jw6.ShelfRemote
+            repo com.jw6ventures.ShelfRemote.flatpak com.jw6ventures.ShelfRemote
 
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v4
         with:
           name: flatpak-bundle
-          path: us.jw6.ShelfRemote.flatpak
+          path: com.jw6ventures.ShelfRemote.flatpak
 
   deploy:
     name: Deploy to GitHub Pages
     needs: build
-    # Never on pull requests (no publish for unmerged code / forks).
-    if: github.event_name != 'pull_request'
+    # Never publish an unsigned artifact or anything built for a pull request.
+    if: github.event_name != 'pull_request' && needs.build.outputs.signed == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -195,7 +207,7 @@ jobs:
   release:
     name: Attach bundle to Release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') && needs.build.outputs.signed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -206,7 +218,7 @@ jobs:
           name: flatpak-bundle
 
       - name: Name it with the tag
-        run: mv us.jw6.ShelfRemote.flatpak "ShelfRemote-${GITHUB_REF_NAME}.flatpak"
+        run: mv com.jw6ventures.ShelfRemote.flatpak "ShelfRemote-${GITHUB_REF_NAME}.flatpak"
 
       - name: Create / update release
         uses: softprops/action-gh-release@v2
