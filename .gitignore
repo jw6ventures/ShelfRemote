@@ -1,0 +1,8 @@
+/build/
+/build-test/
+/build-flatpak/
+/.flatpak-builder/
+*.user
+CMakeCache.txt
+CMakeFiles/
+compile_commands.json

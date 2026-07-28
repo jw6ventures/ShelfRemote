@@ -1,0 +1,18 @@
+find_package(Qt6 REQUIRED COMPONENTS Test)
+
+function(shelfremote_test name)
+    qt_add_executable(${name} ${name}.cpp)
+    target_link_libraries(${name} PRIVATE shelfremote_core Qt6::Test)
+    add_test(NAME ${name} COMMAND ${name})
+endfunction()
+
+shelfremote_test(tst_pkce)
+shelfremote_test(tst_endpoints)
+shelfremote_test(tst_progresssyncer)
+shelfremote_test(tst_shelfmodel)
+shelfremote_test(tst_libraryitemsmodel)
+shelfremote_test(tst_servermanager)
+shelfremote_test(tst_apiclient)
+shelfremote_test(tst_bookmarkstore)
+shelfremote_test(tst_securestore)
+shelfremote_test(tst_application)

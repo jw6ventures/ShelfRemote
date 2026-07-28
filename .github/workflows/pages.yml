@@ -1,0 +1,216 @@
+name: Flatpak
+
+# One workflow, one build:
+#   - Pull requests: build only (validation).
+#   - Push to main / v* tags: build, then publish the OSTree repo to GitHub Pages.
+#   - v* tags: also attach the single-file bundle to a GitHub Release.
+# The Pages bundle and the Release bundle both come from the SAME build.
+#
+# One-time setup in the GitHub repo:
+#   Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
+# Optional (recommended) signing: add repo secret FLATPAK_GPG_PRIVATE_KEY with a
+#   base64-encoded exported *private* key:  gpg --export-secret-keys KEYID | base64 -w0
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  # Serialize same-ref runs (so main/tag deploys don't race); cancel superseded
+  # PR runs to save CI.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Native build of the C++ core + unit tests. The Flatpak build below compiles
+  # the app with -DSHELFREMOTE_BUILD_TESTS=OFF (a sandboxed release image is the
+  # wrong place to run a test suite), so this job is what actually exercises the
+  # tests on every push and pull request.
+  test:
+    name: Unit tests (native)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # CMakeLists requires Qt >= 6.5, but ubuntu-latest's apt only ships 6.4.2,
+      # so install a matching Qt from the official archives instead. qtbase (Core,
+      # Gui, Network, DBus, Sql, Test) and qtdeclarative (Qml, Quick, Controls) are
+      # part of the base desktop package, so no extra `modules` are needed.
+      - name: Install Qt 6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.3'
+          cache: true
+
+      # System build tools + the non-Qt libraries the core links (libmpv via
+      # pkg-config, OpenSSL). The offscreen QPA plugin still pulls in a few shared
+      # libraries even without a display, so install those too.
+      - name: Install build + native dependencies
+        run: |
+          set -eu
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build g++ pkg-config \
+            libmpv-dev libssl-dev \
+            libgl1 libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3
+
+      - name: Configure (tests ON)
+        run: cmake -G Ninja -B build-test -S . -DSHELFREMOTE_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build-test
+
+      # The tests use QTEST_MAIN, which builds a QGuiApplication (the core links
+      # Qt Gui); on a headless runner that aborts unless a platform plugin that
+      # needs no display is selected.
+      - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir build-test --output-on-failure
+
+  build:
+    name: Build OSTree repo + bundle
+    needs: test
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.10
+      options: --privileged
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Reuses downloaded sources + ccache across runs so libmpv/libplacebo/etc.
+      # aren't recompiled from scratch every time.
+      - name: Cache flatpak-builder state
+        uses: actions/cache@v4
+        with:
+          path: .flatpak-builder
+          key: fpb-${{ runner.os }}-${{ hashFiles('packaging/us.jw6.ShelfRemote.yaml') }}
+          restore-keys: fpb-${{ runner.os }}-
+
+      - name: Import signing key (optional)
+        id: gpg
+        env:
+          GPG_KEY_B64: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+        run: |
+          set -eu
+          if [ -n "${GPG_KEY_B64:-}" ]; then
+            export GNUPGHOME="$PWD/.gnupg"; mkdir -p "$GNUPGHOME"; chmod 700 "$GNUPGHOME"
+            printf '%s' "$GPG_KEY_B64" | base64 -d | gpg --batch --homedir "$GNUPGHOME" --import
+            KEYID=$(gpg --homedir "$GNUPGHOME" --list-secret-keys --with-colons | awk -F: '/^sec:/{print $5; exit}')
+            gpg --homedir "$GNUPGHOME" --export "$KEYID" > "$PWD/shelfremote.gpg"
+            echo "gpg_args=--gpg-sign=$KEYID --gpg-homedir=$GNUPGHOME" >> "$GITHUB_OUTPUT"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "Signing repo with key $KEYID"
+          else
+            echo "gpg_args=" >> "$GITHUB_OUTPUT"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "No FLATPAK_GPG_PRIVATE_KEY secret; building an unsigned repo."
+          fi
+
+      - name: Build and export to an OSTree repo
+        run: |
+          set -eu
+          flatpak-builder --disable-rofiles-fuse --force-clean --ccache \
+            --repo=repo ${{ steps.gpg.outputs.gpg_args }} \
+            builddir packaging/us.jw6.ShelfRemote.yaml
+          flatpak build-update-repo --prune ${{ steps.gpg.outputs.gpg_args }} repo
+
+      - name: Assemble Pages site
+        run: |
+          set -eu
+          BASE="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
+          mkdir -p site
+          cp -a repo site/repo
+
+          {
+            echo "[Flatpak Repo]"
+            echo "Title=ShelfRemote"
+            echo "Url=$BASE/repo/"
+            echo "Homepage=https://github.com/${{ github.repository }}"
+            echo "Comment=Remote-friendly Audiobookshelf client for Linux"
+            echo "Description=A 10-foot Audiobookshelf client (unofficial)."
+            # Where to get the org.kde.Platform runtime dependency from.
+            echo "RuntimeRepo=https://flathub.org/repo/flathub.flatpakrepo"
+            if [ "${{ steps.gpg.outputs.signed }}" = "true" ]; then
+              echo "GPGKey=$(base64 -w0 shelfremote.gpg)"
+            fi
+          } > site/shelfremote.flatpakrepo
+
+          # Choose the remote-add flag shown in the instructions.
+          if [ "${{ steps.gpg.outputs.signed }}" = "true" ]; then GPGFLAG=""; else GPGFLAG="--no-gpg-verify "; fi
+          cat > site/index.html <<EOF
+          <!doctype html><meta charset="utf-8"><title>ShelfRemote Flatpak repo</title>
+          <style>body{font-family:system-ui,sans-serif;max-width:52rem;margin:3rem auto;padding:0 1rem;line-height:1.5;background:#0e1013;color:#f2f4f7}code,pre{background:#1a1e24;border-radius:6px}pre{padding:1rem;overflow:auto}code{padding:.15rem .35rem}a{color:#4fa3ff}</style>
+          <h1>ShelfRemote &mdash; Flatpak repository</h1>
+          <p>A remote-friendly Linux client for Audiobookshelf. Install and update it with Flatpak:</p>
+          <pre>flatpak remote-add --if-not-exists ${GPGFLAG}shelfremote $BASE/shelfremote.flatpakrepo
+          flatpak install shelfremote us.jw6.ShelfRemote
+          flatpak run us.jw6.ShelfRemote</pre>
+          <p>Update later with <code>flatpak update</code>.</p>
+          EOF
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      # Single-file bundle from the just-built repo (no second compile).
+      - name: Build single-file bundle
+        run: |
+          set -eu
+          flatpak build-bundle --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo \
+            repo us.jw6.ShelfRemote.flatpak us.jw6.ShelfRemote
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-bundle
+          path: us.jw6.ShelfRemote.flatpak
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    # Never on pull requests (no publish for unmerged code / forks).
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  # On v* tags, attach the bundle from the build above to a GitHub Release.
+  release:
+    name: Attach bundle to Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: flatpak-bundle
+
+      - name: Name it with the tag
+        run: mv us.jw6.ShelfRemote.flatpak "ShelfRemote-${GITHUB_REF_NAME}.flatpak"
+
+      - name: Create / update release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ShelfRemote-*.flatpak
+          generate_release_notes: true
+          fail_on_unmatched_files: true

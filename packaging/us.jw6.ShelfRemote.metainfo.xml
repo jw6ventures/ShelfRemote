@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>us.jw6.ShelfRemote</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0 </project_license>
+  <name>ShelfRemote</name>
+  <summary>A remote-friendly Linux client for Audiobookshelf</summary>
+  <description>
+    <p>
+      ShelfRemote is a 10-foot, remote-navigable Linux client for Audiobookshelf.
+      It streams audiobooks and podcasts with libmpv, keeps listening progress in
+      sync with your server, and integrates with desktop media controls via MPRIS.
+      It is an unofficial third-party client and is not affiliated with the
+      Audiobookshelf project.
+    </p>
+  </description>
+  <developer id="us.jw6">
+    <name>James Williams</name>
+  </developer>
+  <url type="homepage">https://github.com/jw6jw6jw6/ShelfRemote</url>
+  <url type="bugtracker">https://github.com/jw6jw6jw6/ShelfRemote/issues</url>
+  <launchable type="desktop-id">us.jw6.ShelfRemote.desktop</launchable>
+  <provides>
+    <binary>shelfremote</binary>
+  </provides>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-07-23">
+      <description><p>Initial MVP.</p></description>
+    </release>
+  </releases>
+</component>

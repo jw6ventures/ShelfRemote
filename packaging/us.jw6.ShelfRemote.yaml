@@ -1,0 +1,128 @@
+# Flatpak manifest for ShelfRemote.
+#
+# Build (host, no root needed):
+#   flatpak install --user flathub org.kde.Platform//6.10 org.kde.Sdk//6.10 org.flatpak.Builder
+#   flatpak run org.flatpak.Builder --user --install --force-clean \
+#       build-flatpak packaging/us.jw6.ShelfRemote.yaml
+#   flatpak run us.jw6.ShelfRemote
+#
+# org.kde.Platform is just a bundled Qt runtime; it does NOT make the app
+# Plasma-only. No KDE Frameworks are linked. libmpv (and its deps) are built from
+# source below because no prebuilt libmpv exists in the runtime; ffmpeg, freetype,
+# fribidi and harfbuzz are provided by the runtime. The libmpv module stack mirrors
+# the mature org.kde.haruna recipe.
+app-id: us.jw6.ShelfRemote
+runtime: org.kde.Platform
+runtime-version: '6.10'
+sdk: org.kde.Sdk
+command: shelfremote
+
+finish-args:
+  - --share=network          # Audiobookshelf server access
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio      # audio playback
+  - --device=dri             # GPU-accelerated QML rendering
+  # MPRIS: owning our own well-known name does not require full session-bus access.
+  - --own-name=org.mpris.MediaPlayer2.us.jw6.ShelfRemote
+  # Deliberately NOT granted: --socket=session-bus, --filesystem=home, --device=all
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /lib/cmake
+  - /share/man
+  - '*.a'
+
+modules:
+  # --- libmpv + dependencies (mirrors org.kde.haruna) ----------------------
+  - name: libmpv
+    buildsystem: meson
+    config-opts:
+      - -Dlibmpv=true
+      - -Dcplayer=false
+      - -Dlua=enabled
+      - -Ddebug=false
+      - -Dbuild-date=false
+      - -Dalsa=disabled
+      - -Dmanpage-build=disabled
+    cleanup:
+      - /share/bash-completion
+      - /share/fish
+      - /share/zsh
+      - /share/doc
+      - /share/icons
+      - /share/applications
+    sources:
+      - type: archive
+        url: https://github.com/mpv-player/mpv/archive/refs/tags/v0.41.0.tar.gz
+        sha256: ee21092a5ee427353392360929dc64645c54479aefdb5babc5cfbb5fad626209
+    modules:
+      - name: luajit
+        no-autogen: true
+        make-args:
+          - BUILDMODE=dynamic
+          - PREFIX=${FLATPAK_DEST}
+        make-install-args:
+          - PREFIX=${FLATPAK_DEST}
+        cleanup:
+          - /bin
+        sources:
+          - type: git
+            url: https://github.com/openresty/luajit2.git
+            tag: v2.1-20260717
+            commit: 1e5c0db1a86c9d0645bdd05e88e3e7a295831074
+
+      - name: libplacebo
+        buildsystem: meson
+        config-opts:
+          - -Ddemos=false
+        sources:
+          - type: git
+            url: https://github.com/haasn/libplacebo.git
+            tag: v7.360.1
+            commit: cee9b076f2c63104ccfd497fa79c39a867293ec4
+
+      - name: libXpresent
+        buildsystem: autotools
+        sources:
+          - type: archive
+            url: https://xorg.freedesktop.org/archive/individual/lib/libXpresent-1.0.2.tar.xz
+            sha256: 4e5b21b4812206a4b223013606ae31170502c1043038777a1ef8f70c09d37602
+
+      - name: libass
+        config-opts:
+          - --disable-static
+        sources:
+          - type: archive
+            url: https://github.com/libass/libass/releases/download/0.17.5/libass-0.17.5.tar.gz
+            sha256: caab4b993dd7be6187c55623b789ed75dddefea6e65938af134637c732fe094a
+
+      - name: uchardet
+        buildsystem: cmake-ninja
+        config-opts:
+          - -DCMAKE_BUILD_TYPE=Release
+          - -DBUILD_STATIC=0
+          - -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+        cleanup:
+          - /bin
+        sources:
+          - type: archive
+            url: https://www.freedesktop.org/software/uchardet/releases/uchardet-0.0.8.tar.xz
+            sha256: e97a60cfc00a1c147a674b097bb1422abd9fa78a2d9ce3f3fdcc2e78a34ac5f0
+
+  # --- ShelfRemote itself --------------------------------------------------
+  - name: shelfremote
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      - -DSHELFREMOTE_BUILD_TESTS=OFF
+    sources:
+      - type: dir
+        path: ..
+        skip:
+          - build
+          - build-flatpak
+          - .flatpak-builder
+          - .git

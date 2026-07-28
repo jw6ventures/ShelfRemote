@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=ShelfRemote
+GenericName=Audiobook Player
+Comment=A remote-friendly Linux client for Audiobookshelf
+# %u passes the jw6-shelfremote:// OAuth callback to a (possibly new) instance,
+# which forwards it to the running primary over a local socket.
+Exec=shelfremote %u
+Icon=us.jw6.ShelfRemote
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+# Registers the custom URI scheme used for the OIDC redirect.
+MimeType=x-scheme-handler/jw6-shelfremote;
+StartupWMClass=shelfremote
