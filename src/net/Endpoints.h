@@ -36,6 +36,8 @@ public:
         { return build(QStringLiteral("/api/libraries/") + id, q); }
     QUrl personalized(const QString &id) const
         { return build(QStringLiteral("/api/libraries/") + id + QStringLiteral("/personalized")); }
+    QUrl libraryPlaylists(const QString &id, const QUrlQuery &q = {}) const
+        { return build(QStringLiteral("/api/libraries/") + id + QStringLiteral("/playlists"), q); }
     QUrl libraryItems(const QString &id, const QUrlQuery &q) const
         { return build(QStringLiteral("/api/libraries/") + id + QStringLiteral("/items"), q); }
     QUrl search(const QString &id, const QUrlQuery &q) const

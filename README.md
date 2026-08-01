@@ -9,7 +9,8 @@ ShelfRemote is an unofficial Audiobookshelf client and not affiliated with Audio
 ## Features
 - Local **and** OIDC login
 - Server discovery, multiple saved servers, encrypted token storage
-- Home shelves, library grid with sort, on-screen-keyboard search, item details
+- Home shelves, playlists, library grid with sort, on-screen-keyboard search,
+  item details
 - Streaming playback via libmpv: multi-file direct play **and** HLS transcode,
   global-timeline seeking, chapters, speed, sleep timer
 - Progress sync with correct wall-clock `timeListened` at any speed

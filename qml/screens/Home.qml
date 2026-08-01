@@ -9,6 +9,9 @@ FocusScope {
     focus: true
     signal itemActivated(var entry)
     signal requestSidebar()
+    // The horizontal cursor is shared by all shelf rows so vertical movement
+    // remains spatially predictable.
+    property int preferredColumn: 0
 
     // True when Home is the visible screen in the StackView.
     readonly property bool isActiveScreen: StackView.status === StackView.Active
@@ -34,6 +37,7 @@ FocusScope {
         // screen (covers the cold-launch case where focus had nowhere to land).
         onCountChanged: if (count > 0 && root.isActiveScreen) {
             currentIndex = 0;
+            root.preferredColumn = 0;
             shelvesList.forceActiveFocus();
         }
 
@@ -50,7 +54,9 @@ FocusScope {
             width: shelvesList.width
             label: model.label
             items: model.items
+            preferredIndex: root.preferredColumn
             focus: ListView.isCurrentItem
+            onIndexSelected: function(index) { root.preferredColumn = index; }
             onItemActivated: function(entry) { root.itemActivated(entry); }
             onAtLeftEdge: root.requestSidebar()
         }

@@ -1,5 +1,6 @@
 #include "app/Backend.h"
 #include "model/LibraryItemsModel.h"
+#include "model/PlaylistModel.h"
 #include "model/ProgressStore.h"
 #include "model/ShelfModel.h"
 #include "net/ApiClient.h"
@@ -56,6 +57,7 @@ Backend::Backend(ApiClient *api, QObject *parent)
     : QObject(parent)
     , m_api(api)
     , m_homeShelves(new ShelfModel(this))
+    , m_playlists(new PlaylistModel(this))
     , m_libraryItems(new LibraryItemsModel(this))
     , m_searchResults(new LibraryItemsModel(this))
 {
@@ -111,6 +113,7 @@ void Backend::selectLibrary(const QString &libraryId)
     Database::instance().putSetting(lastLibraryKey(m_api->baseUrl()), libraryId);
     emit currentLibraryChanged();
     refreshHome();
+    refreshPlaylists();
     browse(QStringLiteral("media.metadata.title"), false, {});
 }
 
@@ -124,6 +127,31 @@ void Backend::refreshHome()
             return;
         if (res.ok)
             m_homeShelves->setShelves(res.jsonDoc().array());
+    });
+}
+
+void Backend::refreshPlaylists()
+{
+    if (m_currentLibraryId.isEmpty())
+        return;
+
+    const QString libraryId = m_currentLibraryId;
+    const quint64 gen = m_serverGeneration;
+    m_api->get(m_api->endpoints().libraryPlaylists(libraryId),
+               [this, libraryId, gen](const ApiResponse &res) {
+        // The selected library may change without changing server generation.
+        // Never show a late playlist response under the new library.
+        if (res.stale || gen != m_serverGeneration ||
+            libraryId != m_currentLibraryId) {
+            return;
+        }
+        if (!res.ok) {
+            emit errorOccurred(tr("Failed to load playlists (HTTP %1)")
+                                   .arg(res.status));
+            return;
+        }
+        m_playlists->setPlaylists(
+            res.json().value(QStringLiteral("results")).toArray());
     });
 }
 
@@ -243,6 +271,7 @@ void Backend::reset()
     m_currentLibraryId.clear();
     m_libraries.clear();
     m_homeShelves->setShelves(QJsonArray());
+    m_playlists->setPlaylists(QJsonArray());
     m_libraryItems->setItems(QJsonArray());
     m_searchResults->setItems(QJsonArray());
     emit librariesChanged();

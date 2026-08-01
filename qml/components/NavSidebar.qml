@@ -22,6 +22,7 @@ FocusScope {
     readonly property var entries: [
         { name: "home",     label: "Home" },
         { name: "library",  label: "Library" },
+        { name: "playlists", label: "Playlists" },
         { name: "search",   label: "Search" },
         { name: "settings", label: "Settings" }
     ]

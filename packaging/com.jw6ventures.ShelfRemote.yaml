@@ -115,9 +115,10 @@ modules:
   # --- ShelfRemote itself --------------------------------------------------
   - name: shelfremote
     buildsystem: cmake-ninja
+    run-tests: true
     config-opts:
       - -DCMAKE_BUILD_TYPE=RelWithDebInfo
-      - -DSHELFREMOTE_BUILD_TESTS=OFF
+      - -DSHELFREMOTE_BUILD_TESTS=ON
     sources:
       - type: file
         path: ../CMakeLists.txt
@@ -127,6 +128,9 @@ modules:
       - type: dir
         path: ../qml
         dest: qml
+      - type: dir
+        path: ../tests
+        dest: tests
       - type: dir
         path: ../packaging
         dest: packaging

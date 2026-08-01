@@ -61,6 +61,7 @@ ApplicationWindow {
                     switch (name) {
                     case "home":     stack.push(homeComp); break;
                     case "library":  stack.push(libraryComp); break;
+                    case "playlists": stack.push(playlistsComp); break;
                     case "search":   stack.push(searchComp); break;
                     case "settings": stack.push(settingsComp); break;
                     }
@@ -94,6 +95,12 @@ ApplicationWindow {
             default:        openItem(entry.itemId);
             }
         }
+        function playEntry(entry) {
+            if (entry.kind === "episode")
+                Playback.playEpisode(entry.itemId, entry.episodeId);
+            else
+                Playback.playItem(entry.itemId);
+        }
 
         Connections {
             target: Playback
@@ -121,6 +128,10 @@ ApplicationWindow {
     } }
     Component { id: libraryComp;    Library {
         onItemActivated: function(id) { contentRoot.openItem(id); }
+        onRequestSidebar: sidebar.focusSidebar()
+    } }
+    Component { id: playlistsComp;  Playlists {
+        onPlayRequested: function(entry) { contentRoot.playEntry(entry); }
         onRequestSidebar: sidebar.focusSidebar()
     } }
     Component { id: searchComp;     Search {

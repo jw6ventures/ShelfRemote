@@ -48,6 +48,14 @@ private slots:
                  QStringLiteral("https://example.com/audiobookshelf/api/authors/au1/image"));
     }
 
+    void playlistsUnderSubPath()
+    {
+        Endpoints e(QUrl("https://example.com/audiobookshelf"));
+        QCOMPARE(e.libraryPlaylists(QStringLiteral("lib1")).toString(),
+                 QStringLiteral(
+                     "https://example.com/audiobookshelf/api/libraries/lib1/playlists"));
+    }
+
     void relativeContentUrlResolvesUnderSubPath()
     {
         Endpoints e(QUrl("https://example.com/audiobookshelf"));

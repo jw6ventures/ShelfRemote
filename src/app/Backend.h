@@ -8,6 +8,7 @@
 // Full definitions required (not forward decls): these types appear as pointer
 // Q_PROPERTY types, so moc must see them complete to register their metatypes.
 #include "model/LibraryItemsModel.h"
+#include "model/PlaylistModel.h"
 #include "model/ShelfModel.h"
 
 class ApiClient;
@@ -23,6 +24,7 @@ class Backend : public QObject
     Q_PROPERTY(QVariantList libraries READ libraries NOTIFY librariesChanged)
     Q_PROPERTY(QString currentLibraryId READ currentLibraryId NOTIFY currentLibraryChanged)
     Q_PROPERTY(ShelfModel *homeShelves READ homeShelves CONSTANT)
+    Q_PROPERTY(PlaylistModel *playlists READ playlists CONSTANT)
     Q_PROPERTY(LibraryItemsModel *libraryItems READ libraryItems CONSTANT)
     Q_PROPERTY(LibraryItemsModel *searchResults READ searchResults CONSTANT)
 
@@ -36,12 +38,14 @@ public:
     QVariantList libraries() const { return m_libraries; }
     QString currentLibraryId() const { return m_currentLibraryId; }
     ShelfModel *homeShelves() const { return m_homeShelves; }
+    PlaylistModel *playlists() const { return m_playlists; }
     LibraryItemsModel *libraryItems() const { return m_libraryItems; }
     LibraryItemsModel *searchResults() const { return m_searchResults; }
 
     Q_INVOKABLE void loadLibraries();
     Q_INVOKABLE void selectLibrary(const QString &libraryId);
     Q_INVOKABLE void refreshHome();
+    Q_INVOKABLE void refreshPlaylists();
     Q_INVOKABLE void browse(const QString &sort, bool desc, const QString &filter);
     Q_INVOKABLE void search(const QString &query);
     // Drops any current/in-flight search results (box emptied or query too short).
@@ -70,6 +74,7 @@ private:
     ApiClient         *m_api;
     ProgressStore     *m_progress = nullptr;
     ShelfModel        *m_homeShelves;
+    PlaylistModel     *m_playlists;
     LibraryItemsModel *m_libraryItems;
     LibraryItemsModel *m_searchResults;
     QVariantList       m_libraries;

@@ -17,6 +17,7 @@ add_library(shelfremote_core STATIC
     storage/CoverCache.cpp
     server/ServerManager.cpp
     model/ShelfModel.cpp
+    model/PlaylistModel.cpp
     model/LibraryItemsModel.cpp
     model/ProgressStore.cpp
     model/BookmarkStore.cpp
@@ -53,6 +54,7 @@ set(SHELFREMOTE_QML_FILES
     ../qml/screens/ServerSetup.qml
     ../qml/screens/Home.qml
     ../qml/screens/Library.qml
+    ../qml/screens/Playlists.qml
     ../qml/screens/Search.qml
     ../qml/screens/ItemDetails.qml
     ../qml/screens/NowPlaying.qml
