@@ -73,6 +73,11 @@ FocusScope {
             coverId: modelData.coverId
             coverKind: modelData.coverKind
             focus: ListView.isCurrentItem
+            onFocusRequested: {
+                list.currentIndex = index;
+                row.indexSelected(index);
+                list.forceActiveFocus();
+            }
             // Pointer focus must update the ListView cursor too. Otherwise the
             // card can look active while the next remote Left/Right starts from a
             // different logical index.

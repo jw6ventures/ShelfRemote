@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(ShelfRemote
-    VERSION 0.1.1
+    VERSION 0.1.2
     DESCRIPTION "A remote-friendly Linux client for Audiobookshelf"
     LANGUAGES CXX)
 

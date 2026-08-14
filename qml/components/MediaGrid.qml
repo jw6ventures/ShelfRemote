@@ -34,6 +34,10 @@ GridView {
         title: model.title
         author: model.author
         focus: GridView.isCurrentItem
+        onFocusRequested: {
+            grid.currentIndex = index;
+            grid.forceActiveFocus();
+        }
         onActivated: grid.itemActivated(model.itemId)
     }
 

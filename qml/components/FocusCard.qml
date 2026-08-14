@@ -18,6 +18,10 @@ Item {
     property string coverKind: "item"
 
     signal activated()
+    // Pointer hover is navigation in the desktop UI, but the owning view must
+    // update its currentIndex before focus moves. Otherwise a card can look
+    // selected while keyboard/remote navigation still starts somewhere else.
+    signal focusRequested()
 
     width: Theme.cardCellW
     height: Theme.cardCellH
@@ -140,7 +144,7 @@ Item {
     MouseArea {
         anchors.fill: content
         hoverEnabled: true
-        onEntered: card.forceActiveFocus()
-        onClicked: { card.forceActiveFocus(); card.activated(); }
+        onEntered: card.focusRequested()
+        onClicked: { card.focusRequested(); card.activated(); }
     }
 }
