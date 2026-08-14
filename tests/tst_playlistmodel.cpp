@@ -2,6 +2,7 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QSignalSpy>
 
 #include "model/PlaylistModel.h"
 
