@@ -32,10 +32,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Native build of the C++ core + unit tests. The Flatpak build below compiles
-  # the app with -DSHELFREMOTE_BUILD_TESTS=OFF (a sandboxed release image is the
-  # wrong place to run a test suite), so this job is what actually exercises the
-  # tests on every push and pull request.
+  # Run the unit tests natively first for fast failure feedback. The Flatpak build
+  # also runs them against the exact Qt/runtime combination used by the release.
   test:
     name: Unit tests (native)
     runs-on: ubuntu-latest
@@ -54,8 +52,8 @@ jobs:
           cache: true
 
       # System build tools + the non-Qt libraries the core links (libmpv via
-      # pkg-config, OpenSSL). The offscreen QPA plugin still pulls in a few shared
-      # libraries even without a display, so install those too.
+      # pkg-config, OpenSSL). Qt Gui/Quick still pull in a few shared libraries at
+      # link and load time even though the unit tests use QCoreApplication.
       - name: Install build + native dependencies
         run: |
           set -eu
@@ -71,12 +69,7 @@ jobs:
       - name: Build
         run: cmake --build build-test
 
-      # The tests use QTEST_MAIN, which builds a QGuiApplication (the core links
-      # Qt Gui); on a headless runner that aborts unless a platform plugin that
-      # needs no display is selected.
       - name: Run tests
-        env:
-          QT_QPA_PLATFORM: offscreen
         run: ctest --test-dir build-test --output-on-failure
 
   build:

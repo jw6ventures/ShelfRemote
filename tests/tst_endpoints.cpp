@@ -72,5 +72,5 @@ private slots:
     }
 };
 
-QTEST_MAIN(TstEndpoints)
+QTEST_GUILESS_MAIN(TstEndpoints)
 #include "tst_endpoints.moc"

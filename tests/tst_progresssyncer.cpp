@@ -90,5 +90,5 @@ private slots:
     }
 };
 
-QTEST_MAIN(TstProgressSyncer)
+QTEST_GUILESS_MAIN(TstProgressSyncer)
 #include "tst_progresssyncer.moc"

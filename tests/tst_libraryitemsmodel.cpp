@@ -66,5 +66,5 @@ private slots:
     }
 };
 
-QTEST_MAIN(TstLibraryItemsModel)
+QTEST_GUILESS_MAIN(TstLibraryItemsModel)
 #include "tst_libraryitemsmodel.moc"

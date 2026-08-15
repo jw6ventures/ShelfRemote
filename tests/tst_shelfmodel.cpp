@@ -114,5 +114,5 @@ private slots:
     }
 };
 
-QTEST_MAIN(TstShelfModel)
+QTEST_GUILESS_MAIN(TstShelfModel)
 #include "tst_shelfmodel.moc"

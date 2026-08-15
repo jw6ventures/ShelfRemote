@@ -40,5 +40,5 @@ private slots:
     }
 };
 
-QTEST_MAIN(TstPkce)
+QTEST_GUILESS_MAIN(TstPkce)
 #include "tst_pkce.moc"
