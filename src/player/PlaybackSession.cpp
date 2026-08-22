@@ -58,11 +58,21 @@ PlaybackSession::PlaybackSession(ApiClient *api, MpvController *mpv, QObject *pa
     connect(m_mpv, &MpvController::positionChanged, this, &PlaybackSession::onMpvPosition);
     connect(m_mpv, &MpvController::endOfFile, this, &PlaybackSession::onEndOfFile);
     connect(m_mpv, &MpvController::playingChanged, this, &PlaybackSession::onPlayingChanged);
+    connect(m_api, &ApiClient::accessTokenChanged, this, [this]() {
+        if (m_active && m_currentPlaylistUsesAuth) {
+            m_mpv->setHttpHeaders(QStringLiteral("Authorization: Bearer ") +
+                                  m_api->accessToken());
+        }
+    });
     connect(m_mpv, &MpvController::mpvError, this, [this](const QString &message) {
         // A stream failed: close the (now silent) session and tell the user rather
         // than leaving it apparently active.
-        if (m_active)
+        if (m_active) {
             flushAndClose();
+            // A multi-track book has later files queued in mpv. Do not let mpv
+            // advance into one of them after the session has been closed.
+            m_mpv->stop();
+        }
         emit playbackError(tr("Playback error: %1").arg(message));
     });
 }
@@ -251,16 +261,31 @@ void PlaybackSession::loadTrackForGlobal(double globalSeconds, bool autoplay)
     // For HLS the whole book is one stream: seek is global, offset is 0.
     const double inFile = m_isHls ? globalSeconds : (globalSeconds - t.startOffset);
 
-    const QUrl url = m_api->endpoints().resolveContentUrl(t.contentUrl);
     // The contentUrl is server-controlled and may be absolute. Attach the bearer
     // ONLY when it resolves to the configured server's own origin: direct-play file
     // URLs live there and need it; a URL pointing anywhere else (a CDN, or a
     // malicious absolute URL) must never receive our access token. HLS transcode
     // URLs are same-origin and pre-authorized, so the header is harmless there.
-    QString authHeader;
-    if (sameOrigin(url, m_api->baseUrl()))
-        authHeader = QStringLiteral("Authorization: Bearer ") + m_api->accessToken();
-    m_mpv->load(url.toString(), authHeader, inFile);
+    // Queue every consecutive track with the same header policy. mpv can then
+    // advance before its core becomes idle, preserving the audio output across
+    // file boundaries. Splitting at an origin-policy change ensures the bearer
+    // token can never be inherited by an external playlist entry.
+    QStringList urls;
+    QString playlistAuthHeader;
+    for (int i = idx; i < m_tracks.size(); ++i) {
+        const QUrl url = m_api->endpoints().resolveContentUrl(m_tracks.at(i).contentUrl);
+        QString authHeader;
+        if (sameOrigin(url, m_api->baseUrl()))
+            authHeader = QStringLiteral("Authorization: Bearer ") + m_api->accessToken();
+        if (urls.isEmpty())
+            playlistAuthHeader = authHeader;
+        else if (authHeader != playlistAuthHeader)
+            break;
+        urls.push_back(url.toString());
+    }
+    m_queuedThroughTrack = idx + urls.size() - 1;
+    m_currentPlaylistUsesAuth = !playlistAuthHeader.isEmpty();
+    m_mpv->loadPlaylist(urls, playlistAuthHeader, inFile);
     if (!autoplay)
         m_mpv->pause();
     updateChapterForPosition(globalSeconds);
@@ -293,7 +318,17 @@ void PlaybackSession::onEndOfFile()
     // Advance to the next track without closing the session.
     if (m_currentTrack + 1 < m_tracks.size()) {
         sync(QStringLiteral("track-transition"));
-        loadTrackForGlobal(m_tracks.at(m_currentTrack + 1).startOffset + 0.01, true);
+        const int nextTrack = m_currentTrack + 1;
+        if (nextTrack <= m_queuedThroughTrack) {
+            // mpv is already moving to this playlist entry. Update the global
+            // timeline mapping before its first time-pos event arrives.
+            m_currentTrack = nextTrack;
+            updateChapterForPosition(m_tracks.at(nextTrack).startOffset + 0.01);
+        } else {
+            // Authorization policy changed, so this track could not safely share
+            // the previous playlist. Start a new same-policy queue here.
+            loadTrackForGlobal(m_tracks.at(nextTrack).startOffset + 0.01, true);
+        }
     } else {
         // Book finished; the final /close reports the outstanding listened time.
         m_completed = true; // reached the end of the last track

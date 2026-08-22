@@ -24,6 +24,11 @@ public:
     // Loads a URL, optionally with an Authorization header, and (optionally)
     // seeks to `startSeconds` within that file once loaded.
     void load(const QString &url, const QString &authHeader, double startSeconds = 0.0);
+    // Loads the first URL and queues the rest as one mpv playlist. All entries
+    // must use the same HTTP headers. Keeping the next book track queued lets
+    // mpv retain its audio output instead of closing and reopening it at EOF.
+    void loadPlaylist(const QStringList &urls, const QString &authHeader,
+                      double startSeconds = 0.0);
 
     void play();
     void pause();
@@ -34,6 +39,7 @@ public:
     double speed() const { return m_speed; }
     void setVolume(double percent);         // 0..100 (mpv scale)
     double volume() const { return m_volume; }
+    void setHttpHeaders(const QString &headers);
 
     // Audio output device selection. audioDevices() returns a list of
     // {name, description} maps (with an "auto" entry first); setAudioDevice() routes
@@ -46,6 +52,8 @@ public:
     double positionInFile() const { return m_position; }  // seconds into the file
     double durationOfFile() const { return m_duration; }
     bool isPlaying() const { return m_playing; }
+    qint64 audioOutputSampleRate() const { return m_outputSampleRate; }
+    qint64 audioOutputChannelCount() const { return m_outputChannelCount; }
 
 signals:
     void positionChanged(double positionInFile);
@@ -53,6 +61,9 @@ signals:
     void playingChanged(bool playing);
     void endOfFile();     // current file finished (drives track transitions)
     void fileLoaded();
+    // Emitted when mpv opens, closes, or changes the underlying audio output.
+    // Primarily useful for diagnostics and transition regression tests.
+    void audioOutputReconfigured();
     void mpvError(const QString &message);
 
 private:
@@ -60,6 +71,7 @@ private:
     void command(const QStringList &args);
     static void onWakeup(void *ctx);
     void handleEvents();
+    void updateAudioOutputState();
     // Recomputes "effectively playing" from the raw mpv states and emits
     // playingChanged only when it flips.
     void updatePlaying();
@@ -77,4 +89,7 @@ private:
     bool   m_coreIdle = true;
     bool   m_pausedForCache = false;
     bool   m_playing = false;
+    qint64 m_outputSampleRate = 0;
+    qint64 m_outputChannelCount = 0;
+    QString m_outputFormat;
 };

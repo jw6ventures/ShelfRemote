@@ -138,6 +138,10 @@ private:
     double   m_duration = 0.0;
     double   m_globalPosition = 0.0;
     int      m_currentTrack = -1;
+    // Last track already present in mpv's current playlist. Consecutive tracks
+    // with the same authorization policy are queued together for gapless output.
+    int      m_queuedThroughTrack = -1;
+    bool     m_currentPlaylistUsesAuth = false;
     QVector<Track> m_tracks;
     QJsonArray m_chapters;
     int      m_chapterIndex = -1;

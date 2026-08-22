@@ -43,6 +43,16 @@ bool MpvController::init()
     mpv_set_option_string(m_mpv, "force-seekable", "yes");
     mpv_set_option_string(m_mpv, "cache", "yes");
     mpv_set_option_string(m_mpv, "user-agent", "ShelfRemote");
+    // Audiobook tracks commonly mix 44.1/48 kHz and mono/stereo files. Exposing
+    // each native format to PipeWire/PulseAudio makes HDMI receivers renegotiate
+    // at track boundaries, which drops about a second of speech. Keep one
+    // conventional output contract for the entire session and let mpv resample
+    // and upmix internally.
+    mpv_set_option_string(m_mpv, "audio-samplerate", "48000");
+    mpv_set_option_string(m_mpv, "audio-channels", "stereo");
+    // Strong gapless mode retains the existing AO while mpv advances through the
+    // queued book tracks. loadPlaylist() ensures the next entry exists before EOF.
+    mpv_set_option_string(m_mpv, "gapless-audio", "yes");
 
     if (mpv_initialize(m_mpv) < 0) {
         mpv_destroy(m_mpv);
@@ -121,10 +131,49 @@ void MpvController::handleEvents()
             updatePlaying();
             break;
         }
+        case MPV_EVENT_AUDIO_RECONFIG:
+            // mpv uses this event for decoder/filter-chain changes too. Only
+            // surface it when the actual AO contract changed; that is the event
+            // relevant to PipeWire/PulseAudio/HDMI renegotiation.
+            updateAudioOutputState();
+            break;
         default:
             break;
         }
     }
+}
+
+void MpvController::updateAudioOutputState()
+{
+    if (!m_mpv)
+        return;
+
+    int64_t sampleRate = 0;
+    int64_t channelCount = 0;
+    char *rawFormat = nullptr;
+    const bool available =
+        mpv_get_property(m_mpv, "audio-out-params/samplerate", MPV_FORMAT_INT64,
+                         &sampleRate) >= 0 &&
+        mpv_get_property(m_mpv, "audio-out-params/channel-count", MPV_FORMAT_INT64,
+                         &channelCount) >= 0 &&
+        mpv_get_property(m_mpv, "audio-out-params/format", MPV_FORMAT_STRING,
+                         &rawFormat) >= 0;
+    const QString format = available && rawFormat ? QString::fromUtf8(rawFormat) : QString();
+    if (rawFormat)
+        mpv_free(rawFormat);
+    if (!available) {
+        sampleRate = 0;
+        channelCount = 0;
+    }
+
+    if (sampleRate == m_outputSampleRate &&
+        channelCount == m_outputChannelCount && format == m_outputFormat) {
+        return;
+    }
+    m_outputSampleRate = sampleRate;
+    m_outputChannelCount = channelCount;
+    m_outputFormat = format;
+    emit audioOutputReconfigured();
 }
 
 void MpvController::updatePlaying()
@@ -172,17 +221,34 @@ void MpvController::command(const QStringList &args)
 
 void MpvController::load(const QString &url, const QString &authHeader, double startSeconds)
 {
-    if (!m_mpv)
+    loadPlaylist(QStringList{url}, authHeader, startSeconds);
+}
+
+void MpvController::loadPlaylist(const QStringList &urls, const QString &authHeader,
+                                 double startSeconds)
+{
+    if (!m_mpv || urls.isEmpty())
         return;
-    // Inject the Authorization header for this stream. Cleared first so a public
-    // transcode URL is not sent stale headers. This is a runtime-changeable
-    // property, so it must be set via set_property (not set_option) post-init.
-    mpv_set_property_string(m_mpv, "http-header-fields",
-                            authHeader.isEmpty() ? "" : authHeader.toUtf8().constData());
+    // Inject the Authorization header for this same-policy playlist. Clear it for
+    // public/external URLs so they never inherit the prior server bearer.
+    setHttpHeaders(authHeader);
 
     m_pendingSeek = startSeconds;
-    command({QStringLiteral("loadfile"), url, QStringLiteral("replace")});
+    command({QStringLiteral("loadfile"), urls.first(), QStringLiteral("replace")});
+    for (qsizetype i = 1; i < urls.size(); ++i)
+        command({QStringLiteral("loadfile"), urls.at(i), QStringLiteral("append")});
     play();
+}
+
+void MpvController::setHttpHeaders(const QString &headers)
+{
+    if (!m_mpv)
+        return;
+    // Runtime-changeable property: use set_property rather than set_option after
+    // initialization. This also refreshes the header used by queued tracks when
+    // an Audiobookshelf access token rotates during a long book.
+    const QByteArray encoded = headers.toUtf8();
+    mpv_set_property_string(m_mpv, "http-header-fields", encoded.constData());
 }
 
 void MpvController::play()  { setProperty(QStringLiteral("pause"), false); }

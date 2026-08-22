@@ -54,7 +54,7 @@ public:
     // client was pointed at a different server underneath them.
     quint64 epoch() const { return m_epoch; }
 
-    void setAccessToken(const QString &token) { m_accessToken = token; }
+    void setAccessToken(const QString &token);
     QString accessToken() const { return m_accessToken; }
 
     // Installs a handler invoked when a request comes back 401. It should attempt
@@ -90,6 +90,9 @@ public:
     QNetworkRequest makeRequest(const QUrl &url) const;
     void send(const QByteArray &verb, QNetworkRequest req, const QByteArray &body,
               ApiCallback cb, bool followRedirects);
+
+signals:
+    void accessTokenChanged();
 
 private:
     void sendImpl(const QByteArray &verb, QNetworkRequest req, const QByteArray &body,

@@ -29,6 +29,14 @@ ApiClient::ApiClient(QObject *parent)
 
 ApiClient::~ApiClient() = default;
 
+void ApiClient::setAccessToken(const QString &token)
+{
+    if (m_accessToken == token)
+        return;
+    m_accessToken = token;
+    emit accessTokenChanged();
+}
+
 void ApiClient::setBaseUrl(const QUrl &base)
 {
     if (m_endpoints.base() == base)
