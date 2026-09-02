@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls.Basic
 import ShelfRemote
 
 // Now Playing: large cover, title/chapter, transport, speed + sleep timer.
