@@ -38,10 +38,12 @@ private slots:
         // The generator fills whole 32-bit words, so lengths that are not a
         // multiple of 4 are the interesting ones: cover every residue class.
         //
-        // Note this pins the shape of the output, not the seeding of its last
-        // bytes. Reading uninitialised memory is undefined behaviour and can look
-        // perfectly random, so the tail-fill itself is not observable from here —
-        // it is enforced by construction in randomToken(), not by this test.
+        // The assertions below pin the shape of the output. They cannot see the
+        // seeding of the last bytes: an unfilled tail is uninitialised memory,
+        // which reads as perfectly plausible random data. Calling these lengths is
+        // still what exposes it — CI runs this binary under valgrind, and an
+        // unfilled tail surfaces there as an uninitialised read inside toBase64().
+        // So keep every residue class below even though nothing here asserts on it.
         for (int bytes : {1, 13, 14, 15, 16, 48}) {
             QSet<QString> seen;
             for (int i = 0; i < 32; ++i) {
