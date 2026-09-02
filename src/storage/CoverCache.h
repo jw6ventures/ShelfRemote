@@ -52,4 +52,9 @@ private:
 
     ApiClient        *m_api;
     QSet<QString>     m_inFlight; // keyed by disk path to dedupe fetches
+    // Disk paths the server has no image for. Grid delegates are recycled, so a
+    // card without cover art asks again every time it scrolls back into view;
+    // without this, that is one doomed request per appearance, forever. Held in
+    // memory only, so a restart (or Clear cache) retries everything.
+    QSet<QString>     m_missing;
 };

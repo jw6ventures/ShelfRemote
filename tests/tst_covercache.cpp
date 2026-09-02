@@ -3,7 +3,10 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QHostAddress>
 #include <QStandardPaths>
+#include <QTcpServer>
+#include <QTcpSocket>
 
 #include "app/AppConfig.h"
 #include "net/ApiClient.h"
@@ -68,6 +71,50 @@ private slots:
         covers.pruneToLimit(CoverCache::kDefaultMaxCacheBytes);
 
         QCOMPARE(covers.cacheSizeBytes(), qint64(500));
+    }
+
+    void anItemWithoutCoverArtIsAskedForOnce()
+    {
+        // A server with no image for anything.
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        int requests = 0;
+        connect(&server, &QTcpServer::newConnection, &server, [&]() {
+            while (QTcpSocket *sock = server.nextPendingConnection()) {
+                // Count request lines, not connections: keep-alive means a repeat
+                // fetch reuses the socket rather than opening a new one.
+                connect(sock, &QTcpSocket::readyRead, sock, [sock, &requests]() {
+                    const QByteArray chunk = sock->readAll();
+                    requests += chunk.count("GET ");
+                    for (int i = 0; i < chunk.count("GET "); ++i) {
+                        sock->write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+                    }
+                    sock->flush();
+                });
+                connect(sock, &QTcpSocket::disconnected, sock, &QTcpSocket::deleteLater);
+            }
+        });
+
+        ApiClient api;
+        api.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:%1").arg(server.serverPort())));
+        CoverCache covers(&api);
+
+        QVERIFY(covers.localUrl(QStringLiteral("no-art")).isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(requests, 1, 3000);
+        QTest::qWait(200); // let the 404 land and the fetch settle
+
+        // Grid delegates are recycled, so the same card asks again every time it
+        // scrolls back into view. Those repeats must not become repeat requests.
+        for (int i = 0; i < 5; ++i)
+            QVERIFY(covers.localUrl(QStringLiteral("no-art")).isEmpty());
+        QTest::qWait(300);
+        QCOMPARE(requests, 1);
+
+        // Clearing the cache is an explicit request for a clean slate, so the
+        // server is asked again afterwards.
+        covers.clearCache();
+        QVERIFY(covers.localUrl(QStringLiteral("no-art")).isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(requests, 2, 3000);
     }
 
     void aZeroLimitEmptiesTheCache()

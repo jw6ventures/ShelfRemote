@@ -4,6 +4,7 @@
 #include <QJsonObject>
 
 #include "model/LibraryItemsModel.h"
+#include "net/ApiClient.h"
 
 // setItems() is reused for both shelf contents and search results, which may be
 // either nested ABS libraryItems or already-flattened rows. These tests pin that
@@ -50,6 +51,26 @@ private slots:
         QCOMPARE(role(m, 0, LibraryItemsModel::ItemIdRole), QStringLiteral("y"));
         QCOMPARE(role(m, 0, LibraryItemsModel::TitleRole), QStringLiteral("FT"));
         QCOMPARE(role(m, 0, LibraryItemsModel::AuthorRole), QStringLiteral("FA"));
+    }
+
+    void setItemsClearsAStrandedLoadingFlag()
+    {
+        ApiClient api;
+        // Nothing listens on this port, so the page request stays in flight long
+        // enough for setItems() to supersede it.
+        api.setBaseUrl(QUrl(QStringLiteral("http://127.0.0.1:9")));
+
+        LibraryItemsModel m;
+        m.setApi(&api);
+        m.loadLibrary(QStringLiteral("lib1"));
+        QVERIFY(m.loading());
+
+        // setItems() invalidates that request, so its response returns early
+        // without clearing the flag it set — and, unlike loadLibrary(), starts no
+        // new page to set it again. The model must not be left reporting loading
+        // forever: that both strands a spinner and makes loadMore() a no-op.
+        m.setItems(QJsonArray{QJsonObject{{"id", "a"}}});
+        QVERIFY(!m.loading());
     }
 
     void setItemsResetsAndClearsPagination()

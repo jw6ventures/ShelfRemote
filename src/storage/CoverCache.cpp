@@ -52,7 +52,7 @@ QString CoverCache::authorImage(const QString &authorId, int width, int height)
 void CoverCache::fetch(const QString &id, int width, int height, bool author)
 {
     const QString path = diskPath(id, width, height, author);
-    if (m_inFlight.contains(path))
+    if (m_inFlight.contains(path) || m_missing.contains(path))
         return;
     m_inFlight.insert(path);
 
@@ -71,7 +71,14 @@ void CoverCache::fetch(const QString &id, int width, int height, bool author)
         // server adopt this (old server's) image file — drop it instead.
         if (res.stale)
             return;
-        if (!res.ok || res.body.isEmpty())
+        // Distinguish "this item has no cover" from "the request failed". Only the
+        // former is worth remembering: a transport error or a server hiccup should
+        // still be retried the next time the card is shown.
+        if (res.status == 404 || (res.ok && res.body.isEmpty())) {
+            m_missing.insert(path);
+            return;
+        }
+        if (!res.ok)
             return;
         QFile f(path);
         if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -116,6 +123,9 @@ void CoverCache::pruneToLimit(qint64 maxBytes)
 
 void CoverCache::clearCache()
 {
+    // An explicit clear is the user asking for a clean slate, so also forget which
+    // covers the server had none of and let them all be tried again.
+    m_missing.clear();
     QDir dir(AppConfig::coverCacheDir());
     const auto entries = dir.entryList(QDir::Files);
     for (const QString &e : entries)
