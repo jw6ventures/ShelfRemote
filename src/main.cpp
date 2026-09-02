@@ -51,26 +51,24 @@ void logToFileHandler(QtMsgType type, const QMessageLogContext &ctx, const QStri
             case QtCriticalMsg: lvl = "ERROR"; break;
             case QtFatalMsg:    lvl = "FATAL"; break;
             }
-            QTextStream ts(&f);
-            ts << QDateTime::currentDateTimeUtc().toString(Qt::ISODate)
-               << " [" << lvl << "] " << msg << '\n';
+            {
+                // Scoped so the stream flushes before the size below is read.
+                QTextStream ts(&f);
+                ts << QDateTime::currentDateTimeUtc().toString(Qt::ISODate)
+                   << " [" << lvl << "] " << msg << '\n';
+            }
+            const bool oversized = f.size() > DebugLog::kMaxLogBytes;
+            f.close();
+            // Still holding the mutex, so no other thread can be mid-write while
+            // the file is renamed out from under it.
+            if (oversized)
+                DebugLog::rotate();
         }
     }
     if (g_prevHandler)
         g_prevHandler(type, ctx, msg);
 }
 
-// Keep the log bounded: rotate to a single .1 backup once it passes ~1 MB.
-void rotateLogIfLarge()
-{
-    const QString path = AppConfig::logFilePath();
-    const QFileInfo fi(path);
-    if (fi.exists() && fi.size() > 1 * 1024 * 1024) {
-        const QString bak = path + QStringLiteral(".1");
-        QFile::remove(bak);
-        QFile::rename(path, bak);
-    }
-}
 } // namespace
 
 int main(int argc, char *argv[])
@@ -84,7 +82,7 @@ int main(int argc, char *argv[])
     QGuiApplication::setDesktopFileName(AppConfig::appId());
 
     // Start file logging early so startup diagnostics are captured too.
-    rotateLogIfLarge();
+    DebugLog::rotateIfLarge();
     g_prevHandler = qInstallMessageHandler(logToFileHandler);
 
     // Explicit Basic style: no KDE/GTK theme coupling, fully custom 10-foot UI.
