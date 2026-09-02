@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
+#include <QFileInfo>
 #include <QUrl>
 #include <QUrlQuery>
 
@@ -90,6 +91,27 @@ qint64 CoverCache::cacheSizeBytes() const
         total += it.fileInfo().size();
     }
     return total;
+}
+
+void CoverCache::pruneToLimit(qint64 maxBytes)
+{
+    if (maxBytes < 0)
+        return;
+    QDir dir(AppConfig::coverCacheDir());
+    // Oldest first, so the walk below deletes in eviction order and can stop as
+    // soon as the remaining files fit.
+    QFileInfoList files = dir.entryInfoList(QDir::Files, QDir::Time | QDir::Reversed);
+    qint64 total = 0;
+    for (const QFileInfo &fi : std::as_const(files))
+        total += fi.size();
+
+    for (const QFileInfo &fi : std::as_const(files)) {
+        if (total <= maxBytes)
+            break;
+        const qint64 size = fi.size();
+        if (QFile::remove(fi.absoluteFilePath()))
+            total -= size;
+    }
 }
 
 void CoverCache::clearCache()

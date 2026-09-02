@@ -120,6 +120,13 @@ int main(int argc, char *argv[])
     });
     auto *servers = new ServerManager(&app);
     auto *covers = new CoverCache(api, &app);
+    // Both caches are append-only during a run. Trim them once at startup so an
+    // installation that has browsed a large library for months does not carry an
+    // ever-growing cover directory and item_cache table. Both hold only data that
+    // is re-fetched on demand, so evicting the oldest entries costs nothing but a
+    // request the next time they are shown.
+    covers->pruneToLimit();
+    Database::instance().pruneItemCache(2000);
     auto *backend = new Backend(api, &app);
     auto *progress = new ProgressStore(&app);
     backend->setProgressStore(progress);

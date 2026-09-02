@@ -236,6 +236,16 @@ void Backend::loadItem(const QString &itemId)
         if (res.stale || gen != m_serverGeneration)
             return;
         if (!res.ok) {
+            // Every successful load writes this item to the local cache. Falling
+            // back to it beats a blank details screen when the server is briefly
+            // unreachable — but say so, because the contents may be out of date.
+            const QJsonObject cached =
+                Database::instance().cachedItem(itemCacheKey(base, itemId));
+            if (!cached.isEmpty()) {
+                emit itemLoaded(jsonToVariant(cached).toMap());
+                emit errorOccurred(tr("Showing saved details; the server could not be reached"));
+                return;
+            }
             emit errorOccurred(tr("Failed to load item"));
             return;
         }

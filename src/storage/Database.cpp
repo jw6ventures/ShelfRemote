@@ -173,6 +173,20 @@ void Database::removeServer(const QString &id)
     execOrWarn(q, "removeServer");
 }
 
+void Database::pruneItemCache(int maxRows)
+{
+    if (maxRows < 0)
+        return;
+    QSqlQuery q(QSqlDatabase::database(m_connName));
+    // rowid tie-breaks entries written within the same second, so the ordering is
+    // total and the newest `maxRows` are always the ones kept.
+    q.prepare(QStringLiteral(
+        "DELETE FROM item_cache WHERE item_id NOT IN ("
+        "  SELECT item_id FROM item_cache ORDER BY updated DESC, rowid DESC LIMIT ?)"));
+    q.addBindValue(maxRows);
+    execOrWarn(q, "pruneItemCache");
+}
+
 void Database::cacheItem(const QString &itemId, const QJsonObject &json)
 {
     QSqlQuery q(QSqlDatabase::database(m_connName));

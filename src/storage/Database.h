@@ -44,6 +44,10 @@ public:
     // Removes every cached item whose key is namespaced under `serverId` (keys are
     // "<serverId>/<itemId>"). Used when a server is forgotten.
     void removeCachedItemsForServer(const QString &serverId);
+    // Keeps only the `maxRows` most recently written cache entries. Nothing else
+    // ever deletes from this table, so without a periodic prune it grows by one
+    // row for every item detail ever opened, for the life of the installation.
+    void pruneItemCache(int maxRows);
 
 private:
     Database() = default;

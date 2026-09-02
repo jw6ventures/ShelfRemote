@@ -28,6 +28,17 @@ public:
     Q_INVOKABLE qint64 cacheSizeBytes() const;
     Q_INVOKABLE void clearCache();
 
+    // Default ceiling for the on-disk cover cache.
+    static constexpr qint64 kDefaultMaxCacheBytes = 256LL * 1024 * 1024;
+
+    // Deletes the oldest cover files until the directory fits in `maxBytes`.
+    // Nothing else bounds this directory: every distinct item, author, and size
+    // ever displayed leaves a file behind, so a large library grows it without
+    // limit. Eviction is by write time — a cover is written once and never
+    // rewritten, so that is first-fetched-first-evicted; an evicted cover is
+    // simply re-fetched the next time its card is shown.
+    void pruneToLimit(qint64 maxBytes = kDefaultMaxCacheBytes);
+
 signals:
     void coverReady(const QString &itemId, const QString &fileUrl);
 
