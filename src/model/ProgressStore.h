@@ -34,6 +34,15 @@ public:
     Q_INVOKABLE void update(const QString &itemId, double currentTime, double duration,
                             bool finished);
 
+    // Replaces an item's record with values the server reported, rather than ones
+    // derived from a local duration that may not be known.
+    void set(const QString &itemId, double fraction, double currentTime, bool finished);
+
+    // Flips only the finished flag, leaving position and fraction untouched. Used
+    // for the optimistic local echo of a "mark finished" toggle, where that flag is
+    // the only thing known for certain until the server answers.
+    void setFinished(const QString &itemId, bool finished);
+
 signals:
     void changed();
 

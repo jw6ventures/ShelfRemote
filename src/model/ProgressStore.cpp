@@ -65,6 +65,43 @@ double ProgressStore::startedAtMs(const QString &itemId) const
     return it == m_byItem.constEnd() ? 0.0 : it->startedAtMs;
 }
 
+void ProgressStore::set(const QString &itemId, double fraction, double currentTime,
+                       bool finished)
+{
+    if (itemId.isEmpty())
+        return;
+    Rec &r = m_byItem[itemId];
+    r.fraction = qBound(0.0, fraction, 1.0);
+    r.currentTime = currentTime;
+    r.finished = finished;
+    if (r.startedAtMs <= 0.0 && (currentTime > 0.0 || finished))
+        r.startedAtMs = double(QDateTime::currentMSecsSinceEpoch());
+    emit changed();
+}
+
+void ProgressStore::setFinished(const QString &itemId, bool finished)
+{
+    if (itemId.isEmpty())
+        return;
+    auto it = m_byItem.find(itemId);
+    if (it == m_byItem.end()) {
+        // No record yet: marking finished is still worth showing straight away.
+        Rec r;
+        r.finished = finished;
+        r.fraction = finished ? 1.0 : 0.0;
+        m_byItem.insert(itemId, r);
+        emit changed();
+        return;
+    }
+    if (it->finished == finished)
+        return;
+    it->finished = finished;
+    // fraction() reports 1.0 for anything finished, so the stored fraction only
+    // becomes visible again once the flag is cleared. Leave it as the server last
+    // described it; loadItem() overwrites both shortly.
+    emit changed();
+}
+
 void ProgressStore::update(const QString &itemId, double currentTime, double duration,
                            bool finished)
 {
