@@ -72,6 +72,12 @@ jobs:
       - name: Run tests
         run: ctest --test-dir build-test --output-on-failure
 
+      # The QML side of the UI has no compile step of its own, so nothing else
+      # notices a file that will not load until it is opened at runtime. This
+      # target lints every file in the module; levels are set in .qmllint.ini.
+      - name: Lint QML
+        run: cmake --build build-test --target all_qmllint
+
   build:
     name: Build OSTree repo + bundle
     needs: test
