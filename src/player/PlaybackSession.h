@@ -103,6 +103,8 @@ private:
     void onPlayingChanged(bool playing);
     void updateChapterForPosition(double globalSeconds);
     void sync(const QString &reason);
+    // Requests a sync a short moment from now, collapsing a burst of seeks into
+    // one request. Any sync that goes out for another reason cancels it.
     void scheduleSync();
 
     struct Track {
@@ -117,6 +119,7 @@ private:
     MpvController  *m_mpv;
     ProgressSyncer *m_listen;
     QTimer          m_syncTimer;
+    QTimer          m_seekSyncTimer;   // coalesces a burst of seeks into one sync
     QTimer          m_sleepTimer;      // fires once; pauses playback on expiry
     int             m_sleepMinutes = 0; // configured sleep duration (0 == off)
 

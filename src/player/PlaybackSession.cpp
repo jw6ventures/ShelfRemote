@@ -16,6 +16,10 @@
 
 namespace {
 constexpr int kSyncIntervalMs = 12000; // 12s while actively playing
+// How long to wait for a seek burst to settle before reporting the new position.
+// Long enough to absorb a held-down skip button, short enough that the server has
+// the right position well before the user could plausibly stop the app.
+constexpr int kSeekSyncDebounceMs = 1200;
 
 // True when two URLs share scheme + host + effective port. Used to decide whether
 // the Audiobookshelf bearer token may be attached to a (server-supplied) content
@@ -44,6 +48,16 @@ PlaybackSession::PlaybackSession(ApiClient *api, MpvController *mpv, QObject *pa
 {
     m_syncTimer.setInterval(kSyncIntervalMs);
     connect(&m_syncTimer, &QTimer::timeout, this, [this]() { sync(QStringLiteral("interval")); });
+
+    // Skip is the most-pressed control on a remote, and every press is a seek.
+    // Syncing each one turns a held button into a burst of POSTs whose replies can
+    // land out of order, leaving the server parked on a position the user has
+    // already skipped past. Coalesce a burst into one request instead; sync() reads
+    // the position live, so the request that does go out carries the newest one.
+    m_seekSyncTimer.setSingleShot(true);
+    m_seekSyncTimer.setInterval(kSeekSyncDebounceMs);
+    connect(&m_seekSyncTimer, &QTimer::timeout, this,
+            [this]() { sync(QStringLiteral("seek")); });
 
     // Sleep timer is owned by the session, not the (disposable) Now Playing screen,
     // so leaving that screen never cancels a running countdown. On expiry we pause
@@ -397,7 +411,7 @@ void PlaybackSession::seekGlobal(double seconds)
     }
     m_globalPosition = seconds;
     emit positionChanged(seconds);
-    sync(QStringLiteral("seek"));
+    scheduleSync();
 }
 
 void PlaybackSession::skip(double deltaSeconds)
@@ -460,11 +474,20 @@ void PlaybackSession::cycleSleepTimer()
     }
 }
 
+void PlaybackSession::scheduleSync()
+{
+    if (m_active)
+        m_seekSyncTimer.start();
+}
+
 void PlaybackSession::sync(const QString &reason)
 {
     Q_UNUSED(reason)
     if (!m_active || m_sessionId.isEmpty())
         return;
+    // This request carries the current position, so it subsumes any coalesced
+    // seek still waiting to be reported.
+    m_seekSyncTimer.stop();
     // Reserve the outstanding listened time up front: this request now exclusively
     // owns that interval, so an overlapping sync (interval timer + pause + seek can
     // all fire close together) reserves only the disjoint time accrued after this,
@@ -506,6 +529,7 @@ void PlaybackSession::flushAndClose(bool blocking)
         emit sleepTimerChanged();
     }
     m_syncTimer.stop();
+    m_seekSyncTimer.stop(); // the final sync below carries the latest position
     m_listen->setPlaying(false);
     // Reserve the final interval; this /close request owns it (see sync()).
     const double listened = m_listen->takeListenedSeconds();
