@@ -11,6 +11,8 @@
 #include <QUrl>
 #include <QUrlQuery>
 
+#include <utility>
+
 CoverCache::CoverCache(ApiClient *api, QObject *parent)
     : QObject(parent)
     , m_api(api)
