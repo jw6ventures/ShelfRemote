@@ -151,7 +151,6 @@ int main(int argc, char *argv[])
     // none of that server's libraries/home/search state (or its in-flight
     // responses) can bleed into the newly authenticated one.
     QObject::connect(auth, &AuthManager::authenticated, backend, [=](const QJsonObject &user) {
-        servers->setServerVersion(auth->serverVersion());
         backend->reset();
         progress->loadFromUser(user);
         bookmarks->loadFromUser(user);
