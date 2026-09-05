@@ -321,6 +321,13 @@ QByteArray SecureStore::acquirePortalSecret()
 
 QByteArray SecureStore::deriveKey(const QByteArray &context) const
 {
+    // No master secret means no key material. HKDF happily derives from an EMPTY
+    // IKM, so deriving anyway would silently produce a key that depends only on
+    // the fixed salt/info — i.e. a value any attacker can recompute. Fail closed
+    // here so encrypt()/decrypt() abort instead of encrypting under it.
+    if (m_master.isEmpty())
+        return {};
+
     // HKDF-SHA256 via the OpenSSL 3.x EVP_KDF one-shot interface.
     QByteArray key(kKeyLen, Qt::Uninitialized);
     QByteArray salt = AppConfig::appId().toUtf8() + QByteArrayLiteral(".hkdf.v1");
@@ -460,7 +467,15 @@ QByteArray SecureStore::decrypt(const QByteArray &blob, const QByteArray &aad) c
 void SecureStore::store(const QString &key, const QByteArray &plaintext,
                         const SecretContext &ctx)
 {
-    masterSecret();
+    if (masterSecret().isEmpty()) {
+        // The sticky provider could not be reached (or key generation failed).
+        // Persisting now is not an option: there is no key to protect the secret
+        // with. Leave any existing row alone so a later run, once the provider is
+        // back, can still unlock it.
+        qWarning() << "SecureStore: no master secret available; not persisting secret for"
+                   << key;
+        return;
+    }
     const QByteArray blob = encrypt(plaintext, ctx.aad());
     if (blob.isEmpty()) {
         // Encryption failed (bad RNG / no master key): storing an empty blob would

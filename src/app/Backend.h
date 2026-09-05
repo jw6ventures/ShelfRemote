@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QJsonArray>
+#include <QJsonObject>
 #include <QObject>
 #include <QVariantList>
 #include <QVariantMap>
@@ -71,6 +72,9 @@ signals:
     void navigateToLibrary();
 
 private:
+    // Folds an item payload's userMediaProgress into the shared ProgressStore.
+    void applyItemProgress(const QString &itemId, const QJsonObject &item);
+
     ApiClient         *m_api;
     ProgressStore     *m_progress = nullptr;
     ShelfModel        *m_homeShelves;

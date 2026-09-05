@@ -72,6 +72,27 @@ jobs:
       - name: Run tests
         run: ctest --test-dir build-test --output-on-failure
 
+      # Some defects produce values that look entirely plausible, so no assertion
+      # can see them — a buffer filled in whole 32-bit words leaves a tail of
+      # uninitialised bytes that read as perfectly good random data. Only a memory
+      # checker catches that class. Restricted to the tests with no network,
+      # database, or timing dependence, which keeps this quiet and quick (~15s).
+      - name: Memory-check the deterministic tests
+        run: |
+          set -eu
+          sudo apt-get install -y --no-install-recommends valgrind
+          for t in tst_pkce tst_endpoints tst_shelfmodel tst_playlistmodel \
+                   tst_progressstore tst_libraryitemsmodel; do
+            echo "== $t"
+            valgrind --error-exitcode=99 --leak-check=no -q "build-test/tests/$t"
+          done
+
+      # The QML side of the UI has no compile step of its own, so nothing else
+      # notices a file that will not load until it is opened at runtime. This
+      # target lints every file in the module; levels are set in .qmllint.ini.
+      - name: Lint QML
+        run: cmake --build build-test --target all_qmllint
+
   build:
     name: Build OSTree repo + bundle
     needs: test

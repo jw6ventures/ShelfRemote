@@ -11,9 +11,17 @@ QString Pkce::base64Url(const QByteArray &raw)
 
 QString Pkce::randomToken(int bytes)
 {
-    QByteArray buf(bytes, Qt::Uninitialized);
+    if (bytes <= 0)
+        return {};
+    // fillRange works in whole quint32s, so a length that is not a multiple of 4
+    // would leave the tail of the buffer uninitialised and carry that unseeded
+    // memory straight into a state value or code verifier. Generate whole words
+    // and trim, so any length is fully random.
+    const qsizetype words = (bytes + int(sizeof(quint32)) - 1) / int(sizeof(quint32));
+    QByteArray buf(words * qsizetype(sizeof(quint32)), Qt::Uninitialized);
     QRandomGenerator::system()->fillRange(
-        reinterpret_cast<quint32 *>(buf.data()), bytes / sizeof(quint32));
+        reinterpret_cast<quint32 *>(buf.data()), words);
+    buf.truncate(bytes);
     return base64Url(buf);
 }
 

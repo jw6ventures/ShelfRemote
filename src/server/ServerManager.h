@@ -6,9 +6,7 @@
 
 #include "server/ServerProfile.h"
 
-// QML-facing list model of saved servers plus a small version-capability layer.
-// The capability layer answers feature questions keyed on the server version so
-// version checks do not get scattered through QML.
+// QML-facing list model of saved servers.
 class ServerManager : public QAbstractListModel
 {
     Q_OBJECT
@@ -27,14 +25,9 @@ public:
     Q_INVOKABLE void removeServer(const QString &id);
     Q_INVOKABLE QUrl baseUrlFor(const QString &id) const;
 
-    // Capability layer: e.g. hasCapability("openidLogoutUrl") given server version.
-    void setServerVersion(const QString &version) { m_version = version; }
-    Q_INVOKABLE bool hasCapability(const QString &feature) const;
-
 signals:
     void countChanged();
 
 private:
     QVector<ServerProfile> m_servers;
-    QString m_version;
 };

@@ -3,6 +3,22 @@
 
 #include <QDebug>
 #include <QFile>
+#include <QFileInfo>
+
+void DebugLog::rotate()
+{
+    const QString path = AppConfig::logFilePath();
+    const QString backup = path + QStringLiteral(".1");
+    QFile::remove(backup);
+    QFile::rename(path, backup);
+}
+
+void DebugLog::rotateIfLarge()
+{
+    const QFileInfo fi(AppConfig::logFilePath());
+    if (fi.exists() && fi.size() > kMaxLogBytes)
+        rotate();
+}
 
 DebugLog::DebugLog(QObject *parent)
     : QObject(parent)

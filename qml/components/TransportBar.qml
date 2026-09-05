@@ -28,12 +28,25 @@ Column {
         }
     }
 
-    Row {
+    // Elapsed on the left, remaining on the right. Anchored rather than separated
+    // by a fixed-width spacer: the spacer's width was the row width minus a magic
+    // 240, which went negative once the window was narrower than that.
+    Item {
         width: transport.width
-        Text { text: transport.fmt(Playback.position); color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
-        Item { width: transport.width - 240; height: 1 }
-        Text { text: "-" + transport.fmt(Playback.duration - Playback.position)
-               color: Theme.textMuted; font.pixelSize: Theme.fontSmall }
+        height: elapsedLabel.implicitHeight
+        Text {
+            id: elapsedLabel
+            anchors.left: parent.left
+            text: transport.fmt(Playback.position)
+            color: Theme.textMuted
+            font.pixelSize: Theme.fontSmall
+        }
+        Text {
+            anchors.right: parent.right
+            text: "-" + transport.fmt(Playback.duration - Playback.position)
+            color: Theme.textMuted
+            font.pixelSize: Theme.fontSmall
+        }
     }
 
     Row {

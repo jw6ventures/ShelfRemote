@@ -5,7 +5,6 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QFile>
-#include <QFileInfo>
 #include <QMutex>
 #include <QTextStream>
 
@@ -51,26 +50,24 @@ void logToFileHandler(QtMsgType type, const QMessageLogContext &ctx, const QStri
             case QtCriticalMsg: lvl = "ERROR"; break;
             case QtFatalMsg:    lvl = "FATAL"; break;
             }
-            QTextStream ts(&f);
-            ts << QDateTime::currentDateTimeUtc().toString(Qt::ISODate)
-               << " [" << lvl << "] " << msg << '\n';
+            {
+                // Scoped so the stream flushes before the size below is read.
+                QTextStream ts(&f);
+                ts << QDateTime::currentDateTimeUtc().toString(Qt::ISODate)
+                   << " [" << lvl << "] " << msg << '\n';
+            }
+            const bool oversized = f.size() > DebugLog::kMaxLogBytes;
+            f.close();
+            // Still holding the mutex, so no other thread can be mid-write while
+            // the file is renamed out from under it.
+            if (oversized)
+                DebugLog::rotate();
         }
     }
     if (g_prevHandler)
         g_prevHandler(type, ctx, msg);
 }
 
-// Keep the log bounded: rotate to a single .1 backup once it passes ~1 MB.
-void rotateLogIfLarge()
-{
-    const QString path = AppConfig::logFilePath();
-    const QFileInfo fi(path);
-    if (fi.exists() && fi.size() > 1 * 1024 * 1024) {
-        const QString bak = path + QStringLiteral(".1");
-        QFile::remove(bak);
-        QFile::rename(path, bak);
-    }
-}
 } // namespace
 
 int main(int argc, char *argv[])
@@ -84,7 +81,7 @@ int main(int argc, char *argv[])
     QGuiApplication::setDesktopFileName(AppConfig::appId());
 
     // Start file logging early so startup diagnostics are captured too.
-    rotateLogIfLarge();
+    DebugLog::rotateIfLarge();
     g_prevHandler = qInstallMessageHandler(logToFileHandler);
 
     // Explicit Basic style: no KDE/GTK theme coupling, fully custom 10-foot UI.
@@ -120,6 +117,13 @@ int main(int argc, char *argv[])
     });
     auto *servers = new ServerManager(&app);
     auto *covers = new CoverCache(api, &app);
+    // Both caches are append-only during a run. Trim them once at startup so an
+    // installation that has browsed a large library for months does not carry an
+    // ever-growing cover directory and item_cache table. Both hold only data that
+    // is re-fetched on demand, so evicting the oldest entries costs nothing but a
+    // request the next time they are shown.
+    covers->pruneToLimit();
+    Database::instance().pruneItemCache(2000);
     auto *backend = new Backend(api, &app);
     auto *progress = new ProgressStore(&app);
     backend->setProgressStore(progress);
@@ -147,7 +151,6 @@ int main(int argc, char *argv[])
     // none of that server's libraries/home/search state (or its in-flight
     // responses) can bleed into the newly authenticated one.
     QObject::connect(auth, &AuthManager::authenticated, backend, [=](const QJsonObject &user) {
-        servers->setServerVersion(auth->serverVersion());
         backend->reset();
         progress->loadFromUser(user);
         bookmarks->loadFromUser(user);

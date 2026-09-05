@@ -320,17 +320,26 @@ void AuthManager::logout()
     QNetworkRequest req = m_api->makeRequest(m_api->endpoints().logout());
     req.setRawHeader("x-refresh-token", m_tokens->refreshToken().toUtf8());
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+
+    // End the local session now rather than when the server answers. The request
+    // above already carries the bearer and refresh token it needs, so nothing is
+    // waiting on this; meanwhile sessionEnding() has just emptied the content and
+    // progress models, so deferring left the user looking at a hollow but still
+    // "signed in" shell — for as long as the 30s transfer timeout when the server
+    // was unreachable, which is exactly when someone is most likely to sign out.
+    m_tokens->clear();
+    m_user = QJsonObject();
+    setState(State::NeedsLogin);
+
     m_api->send("POST", req, QByteArray("{}"), [this](const ApiResponse &res) {
-        // The server may return an identity-provider logout URL. Ignore a stale
-        // reply (origin changed under us) rather than clearing the new session.
+        // Nothing local is left to do; all that remains is the identity provider's
+        // own logout page, when the server hands one back. Ignore a stale reply:
+        // it belongs to a server we have since navigated away from.
         if (res.stale)
             return;
         const QString idpLogout = res.json().value(QStringLiteral("logoutUrl")).toString();
         if (!idpLogout.isEmpty())
             QDesktopServices::openUrl(QUrl(idpLogout));
-        m_tokens->clear();
-        m_user = QJsonObject();
-        setState(State::NeedsLogin);
     }, /*followRedirects*/ false);
 }
 

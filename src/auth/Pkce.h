@@ -13,8 +13,9 @@ struct Pkce {
 
     // Exposed for unit testing the transform independently of randomness.
     static QString challengeFor(const QString &verifier);
+    // base64url of `bytes` fully random bytes. Exposed for the same reason.
+    static QString randomToken(int bytes);
 
 private:
     static QString base64Url(const QByteArray &raw);
-    static QString randomToken(int bytes);
 };

@@ -141,6 +141,14 @@ void LibraryItemsModel::setItems(const QJsonArray &items)
 {
     // Invalidate any in-flight page load so it cannot append into this content.
     ++m_generation;
+    // That request will now return early without clearing the flag it set, and no
+    // fetch follows to set it again — unlike loadLibrary(), which starts a new
+    // page. Clear it here or the model reports loading forever, which both leaves
+    // a spinner up and makes loadMore() a permanent no-op.
+    if (m_loading) {
+        m_loading = false;
+        emit loadingChanged();
+    }
     beginResetModel();
     m_items = {};
     for (const auto &v : items) {

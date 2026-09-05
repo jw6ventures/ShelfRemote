@@ -236,13 +236,44 @@ void Backend::loadItem(const QString &itemId)
         if (res.stale || gen != m_serverGeneration)
             return;
         if (!res.ok) {
+            // Every successful load writes this item to the local cache. Falling
+            // back to it beats a blank details screen when the server is briefly
+            // unreachable — but say so, because the contents may be out of date.
+            const QJsonObject cached =
+                Database::instance().cachedItem(itemCacheKey(base, itemId));
+            if (!cached.isEmpty()) {
+                emit itemLoaded(jsonToVariant(cached).toMap());
+                emit errorOccurred(tr("Showing saved details; the server could not be reached"));
+                return;
+            }
             emit errorOccurred(tr("Failed to load item"));
             return;
         }
         const QJsonObject obj = res.json();
         Database::instance().cacheItem(itemCacheKey(base, itemId), obj);
+        // This request asks for include=progress, so the reply is the server's own
+        // view of where the user is. Fold it into the shared store: browse cards
+        // read their progress from there, and nothing else refreshes it between
+        // logins, so without this a card keeps whatever it was told at sign-in.
+        applyItemProgress(itemId, obj);
         emit itemLoaded(jsonToVariant(obj).toMap());
     });
+}
+
+void Backend::applyItemProgress(const QString &itemId, const QJsonObject &item)
+{
+    if (!m_progress)
+        return;
+    const QJsonObject p = item.value(QStringLiteral("userMediaProgress")).toObject();
+    if (p.isEmpty())
+        return; // never started, or a server that does not return it: nothing to apply
+    // Take the fraction the server reports rather than recomputing it: an item's
+    // duration is not always present here, and the server's own value is what the
+    // rest of Audiobookshelf shows.
+    m_progress->set(itemId,
+                    p.value(QStringLiteral("progress")).toDouble(),
+                    p.value(QStringLiteral("currentTime")).toDouble(),
+                    p.value(QStringLiteral("isFinished")).toBool());
 }
 
 void Backend::markFinished(const QString &itemId, bool finished)
@@ -256,10 +287,13 @@ void Backend::markFinished(const QString &itemId, bool finished)
             emit errorOccurred(tr("Failed to update progress"));
             return;
         }
-        // Reflect the change locally so browse cards update immediately, and reload
-        // the item so its detail view (progress panel, button label) refreshes.
+        // Flip the flag locally so the card responds immediately. Only `finished`
+        // is known for certain here — the fraction that goes with it is not, which
+        // is why this used to leave a completed-looking bar on a book the user had
+        // just un-finished. loadItem() below replaces both with the server's own
+        // numbers a moment later.
         if (m_progress)
-            m_progress->update(itemId, m_progress->currentTime(itemId), 0.0, finished);
+            m_progress->setFinished(itemId, finished);
         loadItem(itemId);
     });
 }

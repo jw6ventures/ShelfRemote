@@ -7,8 +7,11 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
+#include <QFileInfo>
 #include <QUrl>
 #include <QUrlQuery>
+
+#include <utility>
 
 CoverCache::CoverCache(ApiClient *api, QObject *parent)
     : QObject(parent)
@@ -51,7 +54,7 @@ QString CoverCache::authorImage(const QString &authorId, int width, int height)
 void CoverCache::fetch(const QString &id, int width, int height, bool author)
 {
     const QString path = diskPath(id, width, height, author);
-    if (m_inFlight.contains(path))
+    if (m_inFlight.contains(path) || m_missing.contains(path))
         return;
     m_inFlight.insert(path);
 
@@ -70,7 +73,14 @@ void CoverCache::fetch(const QString &id, int width, int height, bool author)
         // server adopt this (old server's) image file — drop it instead.
         if (res.stale)
             return;
-        if (!res.ok || res.body.isEmpty())
+        // Distinguish "this item has no cover" from "the request failed". Only the
+        // former is worth remembering: a transport error or a server hiccup should
+        // still be retried the next time the card is shown.
+        if (res.status == 404 || (res.ok && res.body.isEmpty())) {
+            m_missing.insert(path);
+            return;
+        }
+        if (!res.ok)
             return;
         QFile f(path);
         if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -92,8 +102,32 @@ qint64 CoverCache::cacheSizeBytes() const
     return total;
 }
 
+void CoverCache::pruneToLimit(qint64 maxBytes)
+{
+    if (maxBytes < 0)
+        return;
+    QDir dir(AppConfig::coverCacheDir());
+    // Oldest first, so the walk below deletes in eviction order and can stop as
+    // soon as the remaining files fit.
+    QFileInfoList files = dir.entryInfoList(QDir::Files, QDir::Time | QDir::Reversed);
+    qint64 total = 0;
+    for (const QFileInfo &fi : std::as_const(files))
+        total += fi.size();
+
+    for (const QFileInfo &fi : std::as_const(files)) {
+        if (total <= maxBytes)
+            break;
+        const qint64 size = fi.size();
+        if (QFile::remove(fi.absoluteFilePath()))
+            total -= size;
+    }
+}
+
 void CoverCache::clearCache()
 {
+    // An explicit clear is the user asking for a clean slate, so also forget which
+    // covers the server had none of and let them all be tried again.
+    m_missing.clear();
     QDir dir(AppConfig::coverCacheDir());
     const auto entries = dir.entryList(QDir::Files);
     for (const QString &e : entries)
