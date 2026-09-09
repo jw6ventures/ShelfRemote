@@ -19,11 +19,19 @@ ApplicationWindow {
     Shortcut { sequence: "Media Stop"; onActivated: Playback.stopAndClose() }
     Shortcut { sequence: "Media Next"; onActivated: Playback.nextChapter() }
     Shortcut { sequence: "Media Previous"; onActivated: Playback.previousChapter() }
-    Shortcut { sequence: StandardKey.MoveToStartOfLine; onActivated: sidebar.navigate("home") }
+    // Shell navigation only exists behind the auth gate, and a window-level
+    // Shortcut outranks the focused item: left enabled, Home/Esc would be stolen
+    // from the login screen's text fields and drop focus into the hidden shell.
+    Shortcut {
+        sequence: StandardKey.MoveToStartOfLine
+        enabled: Auth.isAuthenticated
+        onActivated: sidebar.navigate("home")
+    }
 
     // Back navigation (Esc / Browser Back).
     Shortcut {
         sequences: [StandardKey.Cancel, StandardKey.Back]
+        enabled: Auth.isAuthenticated
         onActivated: {
             if (libraryPicker.opened) { libraryPicker.cancel(); return; }
             if (stack.depth > 1) stack.pop();

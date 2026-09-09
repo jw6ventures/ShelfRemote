@@ -31,6 +31,7 @@ FocusScope {
         spacing: Theme.spacing
 
         Row {
+            id: header
             spacing: Theme.spacing
             Text {
                 text: "Library"
@@ -40,15 +41,28 @@ FocusScope {
                 anchors.verticalCenter: parent.verticalCenter
             }
             Item { width: Theme.spacingLarge; height: 1 }
+            // Both controls are wired into the arrow-key chain: reachable only by
+            // Tab or mouse, they did not exist for anyone driving this from a
+            // remote. Up from the grid's first row comes back here.
             FocusButton {
+                id: sortBtn
                 text: "Sort: " + root.sortOptions[root.sortIndex].label
+                KeyNavigation.right: orderBtn
+                KeyNavigation.down: grid
+                Keys.onLeftPressed: function(event) {
+                    root.requestSidebar();
+                    event.accepted = true;
+                }
                 onClicked: {
                     root.sortIndex = (root.sortIndex + 1) % root.sortOptions.length;
                     Backend.browse(root.sortOptions[root.sortIndex].key, root.sortDesc, "");
                 }
             }
             FocusButton {
+                id: orderBtn
                 text: root.sortDesc ? "▼ Desc" : "▲ Asc"
+                KeyNavigation.left: sortBtn
+                KeyNavigation.down: grid
                 onClicked: {
                     root.sortDesc = !root.sortDesc;
                     Backend.browse(root.sortOptions[root.sortIndex].key, root.sortDesc, "");
@@ -59,10 +73,20 @@ FocusScope {
         MediaGrid {
             id: grid
             width: parent.width
-            height: parent.height - Theme.fontTitle - Theme.spacing * 3
+            // Measured off the header, not off its font size: the sort buttons
+            // make that row far taller than fontTitle, so the grid was sized
+            // against a number that had nothing to do with the space left.
+            height: parent.height - header.height - Theme.spacing
             itemsModel: Backend.libraryItems
             onItemActivated: function(id) { root.itemActivated(id); }
             onAtLeftEdge: root.requestSidebar()
+            // First row (or an empty grid): Up leaves for the sort controls.
+            // Anywhere else it stays unaccepted so the grid moves the cursor.
+            Keys.onUpPressed: function(event) {
+                event.accepted = grid.currentIndex < grid.cellsPerRow();
+                if (event.accepted)
+                    sortBtn.forceActiveFocus();
+            }
         }
     }
 }
