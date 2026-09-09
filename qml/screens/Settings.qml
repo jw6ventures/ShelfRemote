@@ -9,11 +9,13 @@ FocusScope {
     focus: true
     Component.onCompleted: firstBtn.forceActiveFocus()
 
-    Flickable {
+    // ScrollArea rather than a bare Flickable: the rows run past the bottom of a
+    // short screen, and moving focus down a plain Flickable does not scroll it —
+    // "Sign out" took focus while staying off screen.
+    ScrollArea {
         anchors.fill: parent
         anchors.margins: Theme.spacingLarge
         contentHeight: col.height
-        clip: true
 
         Column {
             id: col

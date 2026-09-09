@@ -19,6 +19,21 @@ FocusScope {
     // always lands on the section list even after the library row was visited.
     function focusSidebar() { list.forceActiveFocus(); }
 
+    // The rail cursor has to follow a section change the user did not make from
+    // here — a Home series card jumping to Library, or the library picker landing
+    // on Home. Otherwise the rail highlights the new section while the cursor (and
+    // so the next Left/Up/Down) is still parked on the old one.
+    function indexOfName(name) {
+        for (var i = 0; i < entries.length; ++i)
+            if (entries[i].name === name) return i;
+        return -1;
+    }
+    onCurrentNameChanged: {
+        var i = indexOfName(currentName);
+        if (i >= 0)
+            list.currentIndex = i;
+    }
+
     readonly property var entries: [
         { name: "home",     label: "Home" },
         { name: "library",  label: "Library" },

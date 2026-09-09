@@ -60,14 +60,16 @@ FocusScope {
             onItemActivated: function(entry) { root.itemActivated(entry); }
             onAtLeftEdge: root.requestSidebar()
         }
+    }
 
-        // Empty state.
-        Text {
-            anchors.centerIn: parent
-            visible: shelvesList.count === 0
-            text: "Nothing here yet."
-            color: Theme.textMuted
-            font.pixelSize: Theme.fontBody
-        }
+    // Empty state. Kept out of the ListView: an item declared inside one becomes a
+    // child of its content item, so it would be centred on the (empty) content —
+    // landing on top of the "Home" header — instead of on the viewport.
+    Text {
+        anchors.centerIn: parent
+        visible: shelvesList.count === 0
+        text: "Nothing here yet."
+        color: Theme.textMuted
+        font.pixelSize: Theme.fontBody
     }
 }

@@ -24,9 +24,12 @@ GridView {
 
     function cellsPerRow() { return Math.max(1, Math.floor(width / cellWidth)); }
 
+    // An empty grid has no current index (-1), which is still the left edge: without
+    // this, Left in an empty result set moves nowhere and traps focus in the grid.
     Keys.onLeftPressed: function(e) {
-        if (currentIndex % cellsPerRow() === 0) { grid.atLeftEdge(); e.accepted = true; }
-        else { moveCurrentIndexLeft(); e.accepted = true; }
+        if (currentIndex <= 0 || currentIndex % cellsPerRow() === 0) grid.atLeftEdge();
+        else moveCurrentIndexLeft();
+        e.accepted = true;
     }
 
     delegate: FocusCard {

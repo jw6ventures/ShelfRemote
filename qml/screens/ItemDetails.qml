@@ -55,7 +55,10 @@ FocusScope {
     }
     function human(s) {
         if (isNaN(s) || s < 0) s = 0;
-        var h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+        // Round to whole minutes first, then split: rounding the minutes on their
+        // own turned 59m40s into "60m" and 1h59m40s into "1h 60m".
+        var mins = Math.round(s / 60);
+        var h = Math.floor(mins / 60), m = mins % 60;
         return (h > 0 ? h + "h " : "") + m + "m";
     }
     function startedDate(ms) {
@@ -84,12 +87,13 @@ FocusScope {
             }
         }
 
-        Flickable {
+        // ScrollArea, not a bare Flickable: the description and chapter list sit
+        // below the fold on a short screen and nothing else scrolls this pane.
+        ScrollArea {
             visible: !root.isPodcast
             width: parent.width - 320 - Theme.spacingLarge
             height: parent.height
             contentHeight: col.height
-            clip: true
 
             Column {
                 id: col
@@ -130,17 +134,28 @@ FocusScope {
                                 color: Theme.progress
                             }
                         }
-                        Row {
+                        // Anchored to the two edges rather than separated by a
+                        // fixed-width spacer: a 520px spacer went negative as soon
+                        // as the panel was narrower than that, which stacked the
+                        // "remaining" label on top of the position label.
+                        Item {
                             width: parent.width
+                            height: positionLabel.height
                             Text {
+                                id: positionLabel
+                                anchors.left: parent.left
+                                anchors.right: remainingLabel.left
+                                anchors.rightMargin: Theme.spacing
+                                elide: Text.ElideRight
                                 text: root.progress.isFinished
                                       ? "Finished"
                                       : Math.round(root.pct * 100) + "%  ·  "
                                         + root.clock(root.doneSecs) + " of " + root.clock(root.totalSecs)
                                 color: Theme.textPrimary; font.pixelSize: Theme.fontSmall
                             }
-                            Item { width: parent.width - 520; height: 1 }
                             Text {
+                                id: remainingLabel
+                                anchors.right: parent.right
                                 visible: !root.progress.isFinished
                                 text: root.human(root.totalSecs - root.doneSecs) + " remaining"
                                 color: Theme.textMuted; font.pixelSize: Theme.fontSmall
@@ -197,111 +212,118 @@ FocusScope {
 
         // Podcast view: a scrollable, focus-navigable episode list. Enter on a
         // row plays that episode (which auto-opens Now Playing via Playback).
-        ListView {
-            id: episodeList
+        // Wrapped in an Item so the empty state can be centred on the viewport:
+        // declaring it inside the ListView would place it in the content item,
+        // which is empty (and zero-height) in exactly that case.
+        Item {
             visible: root.isPodcast
             width: parent.width - 320 - Theme.spacingLarge
             height: parent.height
-            clip: true
-            keyNavigationEnabled: true
-            spacing: Theme.spacingSmall
-            boundsBehavior: Flickable.StopAtBounds
-            cacheBuffer: 2000
-            model: root.episodes
 
-            header: Column {
-                width: episodeList.width
-                spacing: Theme.spacing
-                bottomPadding: Theme.spacing
+            ListView {
+                id: episodeList
+                anchors.fill: parent
+                clip: true
+                keyNavigationEnabled: true
+                spacing: Theme.spacingSmall
+                boundsBehavior: Flickable.StopAtBounds
+                cacheBuffer: 2000
+                model: root.episodes
 
-                Text {
-                    text: root.meta.title || root.item.title || ""
-                    color: Theme.textPrimary; font.pixelSize: Theme.fontTitle; font.bold: true
-                    wrapMode: Text.WordWrap; width: parent.width
+                header: Column {
+                    width: episodeList.width
+                    spacing: Theme.spacing
+                    bottomPadding: Theme.spacing
+
+                    Text {
+                        text: root.meta.title || root.item.title || ""
+                        color: Theme.textPrimary; font.pixelSize: Theme.fontTitle; font.bold: true
+                        wrapMode: Text.WordWrap; width: parent.width
+                    }
+                    Text {
+                        text: root.meta.author || root.meta.authorName || ""
+                        color: Theme.textMuted; font.pixelSize: Theme.fontBody
+                        wrapMode: Text.WordWrap; width: parent.width; visible: text.length > 0
+                    }
+                    Text {
+                        text: root.meta.description || ""
+                        color: Theme.textPrimary; font.pixelSize: Theme.fontBody
+                        wrapMode: Text.WordWrap; width: parent.width; visible: text.length > 0
+                        maximumLineCount: 4; elide: Text.ElideRight
+                    }
+                    Text {
+                        text: root.episodes.length + (root.episodes.length === 1 ? " episode" : " episodes")
+                        color: Theme.textPrimary; font.pixelSize: Theme.fontHeader; font.bold: true
+                        topPadding: Theme.spacing
+                        visible: root.episodes.length > 0
+                    }
                 }
-                Text {
-                    text: root.meta.author || root.meta.authorName || ""
-                    color: Theme.textMuted; font.pixelSize: Theme.fontBody
-                    wrapMode: Text.WordWrap; width: parent.width; visible: text.length > 0
-                }
-                Text {
-                    text: root.meta.description || ""
-                    color: Theme.textPrimary; font.pixelSize: Theme.fontBody
-                    wrapMode: Text.WordWrap; width: parent.width; visible: text.length > 0
-                    maximumLineCount: 4; elide: Text.ElideRight
-                }
-                Text {
-                    text: root.episodes.length + (root.episodes.length === 1 ? " episode" : " episodes")
-                    color: Theme.textPrimary; font.pixelSize: Theme.fontHeader; font.bold: true
-                    topPadding: Theme.spacing
-                    visible: root.episodes.length > 0
-                }
-            }
 
-            delegate: Item {
-                id: epDelegate
-                required property var modelData
-                required property int index
-                width: episodeList.width
-                height: 88
-                focus: ListView.isCurrentItem
+                delegate: Item {
+                    id: epDelegate
+                    required property var modelData
+                    required property int index
+                    width: episodeList.width
+                    height: 88
+                    focus: ListView.isCurrentItem
 
-                readonly property real epDuration: modelData.duration
-                    ? modelData.duration
-                    : (modelData.audioFile && modelData.audioFile.duration ? modelData.audioFile.duration : 0)
+                    readonly property real epDuration: modelData.duration
+                        ? modelData.duration
+                        : (modelData.audioFile && modelData.audioFile.duration ? modelData.audioFile.duration : 0)
 
-                Rectangle {
-                    anchors.fill: parent
-                    anchors.rightMargin: Theme.spacingSmall
-                    radius: Theme.radius
-                    color: epDelegate.activeFocus ? Theme.accent : Theme.surface
-                    border.width: epDelegate.activeFocus ? Theme.focusBorder : 0
-                    border.color: Theme.focusRing
+                    Rectangle {
+                        anchors.fill: parent
+                        anchors.rightMargin: Theme.spacingSmall
+                        radius: Theme.radius
+                        color: epDelegate.activeFocus ? Theme.accent : Theme.surface
+                        border.width: epDelegate.activeFocus ? Theme.focusBorder : 0
+                        border.color: Theme.focusRing
 
-                    Column {
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.leftMargin: Theme.spacing
-                        anchors.rightMargin: Theme.spacing
-                        spacing: Theme.spacingSmall
+                        Column {
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.leftMargin: Theme.spacing
+                            anchors.rightMargin: Theme.spacing
+                            spacing: Theme.spacingSmall
 
-                        Text {
-                            width: parent.width
-                            text: epDelegate.modelData.title || "Episode"
-                            color: epDelegate.activeFocus ? "#ffffff" : Theme.textPrimary
-                            font.pixelSize: Theme.fontBody
-                            elide: Text.ElideRight
-                        }
-                        Text {
-                            width: parent.width
-                            text: {
-                                var d = root.startedDate(epDelegate.modelData.publishedAt);
-                                var len = epDelegate.epDuration > 0 ? root.human(epDelegate.epDuration) : "";
-                                return [d, len].filter(function(s){ return s.length > 0; }).join("  ·  ");
+                            Text {
+                                width: parent.width
+                                text: epDelegate.modelData.title || "Episode"
+                                color: epDelegate.activeFocus ? "#ffffff" : Theme.textPrimary
+                                font.pixelSize: Theme.fontBody
+                                elide: Text.ElideRight
                             }
-                            color: epDelegate.activeFocus ? "#e8f1ff" : Theme.textMuted
-                            font.pixelSize: Theme.fontSmall
-                            visible: text.length > 0
+                            Text {
+                                width: parent.width
+                                text: {
+                                    var d = root.startedDate(epDelegate.modelData.publishedAt);
+                                    var len = epDelegate.epDuration > 0 ? root.human(epDelegate.epDuration) : "";
+                                    return [d, len].filter(function(s){ return s.length > 0; }).join("  ·  ");
+                                }
+                                color: epDelegate.activeFocus ? "#e8f1ff" : Theme.textMuted
+                                font.pixelSize: Theme.fontSmall
+                                visible: text.length > 0
+                            }
                         }
                     }
-                }
 
-                MouseArea {
-                    anchors.fill: parent
-                    onClicked: {
-                        episodeList.currentIndex = epDelegate.index;
-                        Playback.playEpisode(root.itemId, epDelegate.modelData.id);
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            episodeList.currentIndex = epDelegate.index;
+                            Playback.playEpisode(root.itemId, epDelegate.modelData.id);
+                        }
                     }
+                    Keys.onReturnPressed: Playback.playEpisode(root.itemId, epDelegate.modelData.id)
+                    Keys.onEnterPressed: Playback.playEpisode(root.itemId, epDelegate.modelData.id)
                 }
-                Keys.onReturnPressed: Playback.playEpisode(root.itemId, epDelegate.modelData.id)
-                Keys.onEnterPressed: Playback.playEpisode(root.itemId, epDelegate.modelData.id)
             }
 
             // Empty state.
             Text {
                 anchors.centerIn: parent
-                visible: root.isPodcast && episodeList.count === 0
+                visible: episodeList.count === 0
                 text: "No episodes"
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontBody
