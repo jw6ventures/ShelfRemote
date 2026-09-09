@@ -43,6 +43,7 @@ FocusScope {
             spacing: Theme.spacing
 
             Text {
+                id: resultsLabel
                 text: "Results"
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fontHeader
@@ -51,7 +52,9 @@ FocusScope {
             MediaGrid {
                 id: results
                 width: parent.width
-                height: parent.height - Theme.fontHeader - Theme.spacing
+                // A 26px font is taller than 26px once line spacing is counted,
+                // so subtracting the font size left the last row clipped.
+                height: parent.height - resultsLabel.height - Theme.spacing
                 itemsModel: Backend.searchResults
                 onItemActivated: function(id) { root.itemActivated(id); }
                 onAtLeftEdge: keyboard.forceActiveFocus()

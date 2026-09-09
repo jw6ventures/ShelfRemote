@@ -11,10 +11,20 @@ FocusScope {
     signal playRequested(var entry)
     signal requestSidebar()
 
-    readonly property var selectedEntries:
-        playlistList.currentItem ? playlistList.currentItem.playlistEntries : []
-    readonly property string selectedName:
-        playlistList.currentItem ? playlistList.currentItem.playlistName : ""
+    // Cached from the current delegate instead of read live off currentItem: a
+    // ListView destroys delegates that scroll out of view, so on a long list
+    // currentItem goes null and the item pane blanked out mid-browse.
+    property var selectedEntries: []
+    property string selectedName: ""
+    function syncSelection() {
+        if (playlistList.currentItem) {
+            selectedEntries = playlistList.currentItem.playlistEntries;
+            selectedName = playlistList.currentItem.playlistName;
+        } else if (playlistList.count === 0) {
+            selectedEntries = [];
+            selectedName = "";
+        }
+    }
 
     function enterItems() {
         if (itemList.count > 0) {
@@ -40,6 +50,7 @@ FocusScope {
         spacing: Theme.spacing
 
         Text {
+            id: heading
             text: "Playlists"
             color: Theme.textPrimary
             font.pixelSize: Theme.fontTitle
@@ -48,7 +59,9 @@ FocusScope {
 
         Row {
             width: parent.width
-            height: parent.height - Theme.fontTitle - Theme.spacing
+            // The heading is taller than its font size once line spacing counts,
+            // so deriving this from fontTitle pushed the panels off the bottom.
+            height: parent.height - heading.height - Theme.spacing
             spacing: Theme.spacing
 
             Rectangle {
@@ -67,6 +80,8 @@ FocusScope {
                     spacing: Theme.spacingSmall
                     keyNavigationEnabled: true
                     boundsBehavior: Flickable.StopAtBounds
+                    onCurrentItemChanged: root.syncSelection()
+                    onCountChanged: root.syncSelection()
 
                     Keys.onLeftPressed: function(event) {
                         root.requestSidebar();
@@ -173,6 +188,7 @@ FocusScope {
                     spacing: Theme.spacingSmall
 
                     Text {
+                        id: selectedHeading
                         width: parent.width
                         text: root.selectedName
                         color: Theme.textPrimary
@@ -184,7 +200,7 @@ FocusScope {
                     ListView {
                         id: itemList
                         width: parent.width
-                        height: parent.height - Theme.fontHeader - Theme.spacingSmall
+                        height: parent.height - selectedHeading.height - Theme.spacingSmall
                         model: root.selectedEntries
                         clip: true
                         spacing: Theme.spacingSmall
