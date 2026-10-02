@@ -13,6 +13,7 @@
 #include "auth/AuthManager.h"
 #include "auth/TokenStore.h"
 #include "net/ApiClient.h"
+#include "server/ServerProfile.h"
 #include "storage/Database.h"
 #include "storage/SecureStore.h"
 
@@ -135,6 +136,91 @@ private slots:
         // And it stays signed out while that request hangs.
         QTest::qWait(500);
         QVERIFY(!auth.isAuthenticated());
+    }
+
+    // Signs in for real so the tokens are saved under the local key, and records
+    // the server the way the app does, so a later restore has something to read.
+    static void signInAndSave(FakeServer &server)
+    {
+        ApiClient api;
+        SecureStore secure;
+        TokenStore tokens(&api, &secure);
+        UriHandler uris;
+        AuthManager auth(&api, &tokens, &uris);
+        auth.checkServer(server.baseUrl());
+        QTRY_VERIFY_WITH_TIMEOUT(auth.needsLogin(), 5000);
+        auth.loginLocal(QStringLiteral("someone"), QStringLiteral("secret"));
+        QTRY_VERIFY_WITH_TIMEOUT(auth.isAuthenticated(), 5000);
+
+        Database::ServerRow row;
+        row.id = ServerProfile::idForUrl(server.baseUrl());
+        row.name = QStringLiteral("test");
+        row.baseUrl = server.baseUrl().toString();
+        row.lastUserId = QStringLiteral("user-1");
+        Database::instance().upsertServer(row);
+    }
+
+    // Stands in for the system keyring being down: with the portal provider chosen
+    // and no session bus, the master secret cannot be acquired.
+    static void setKeyringAvailable(bool available)
+    {
+        Database::instance().putSetting(QStringLiteral("secretProvider"),
+                                        available ? QStringLiteral("local-v1")
+                                                  : QStringLiteral("portal-v1"));
+    }
+
+    // Right after boot the keyring is often not up yet. That used to drop the user
+    // on the login screen with a perfectly good saved session; now the restore
+    // waits, and signs in by itself once the keyring answers.
+    void aKeyringThatComesUpLateStillRestoresTheSession()
+    {
+        FakeServer server;
+        QVERIFY(server.start());
+        signInAndSave(server);
+
+        ApiClient api;
+        SecureStore secure; // fresh: nothing cached from the sign-in above
+        TokenStore tokens(&api, &secure);
+        UriHandler uris;
+        AuthManager auth(&api, &tokens, &uris);
+
+        setKeyringAvailable(false);
+        QVERIFY(auth.restoreSession(server.baseUrl(), ServerProfile::idForUrl(server.baseUrl())));
+        QVERIFY(auth.isBusy());
+        QVERIFY(!auth.needsLogin());
+        QVERIFY(!auth.notice().isEmpty());
+        QVERIFY(auth.lastError().isEmpty());
+
+        setKeyringAvailable(true);
+        QTRY_VERIFY_WITH_TIMEOUT(auth.isAuthenticated(), 10000);
+        QVERIFY(auth.notice().isEmpty());
+    }
+
+    // Cancel stops the waiting for good; a retry must not sign in behind the
+    // user's back afterwards.
+    void cancellingStopsWaitingForTheKeyring()
+    {
+        FakeServer server;
+        QVERIFY(server.start());
+        signInAndSave(server);
+
+        ApiClient api;
+        SecureStore secure;
+        TokenStore tokens(&api, &secure);
+        UriHandler uris;
+        AuthManager auth(&api, &tokens, &uris);
+
+        setKeyringAvailable(false);
+        QVERIFY(auth.restoreSession(server.baseUrl(), ServerProfile::idForUrl(server.baseUrl())));
+        QVERIFY(auth.isBusy());
+
+        auth.cancelAuth();
+        QVERIFY(auth.needsLogin());
+        QVERIFY(auth.notice().isEmpty());
+
+        setKeyringAvailable(true);
+        QTest::qWait(3000); // past the first retry
+        QVERIFY(auth.needsLogin());
     }
 };
 

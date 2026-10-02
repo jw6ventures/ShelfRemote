@@ -57,10 +57,14 @@ public:
 signals:
     void tokensChanged();
     void refreshFailed();
-    // Persisted tokens exist for this server but could not be unlocked (a legacy
-    // blob, an AAD/context mismatch, or the sticky secret provider was unavailable).
-    // The caller should route the user to a one-time re-login.
+    // Persisted tokens exist for this server but can never be unlocked (a legacy
+    // blob or an AAD/context mismatch); they have been purged. The caller should
+    // route the user to a one-time re-login.
     void secretsUnreadable();
+    // Persisted tokens exist but the secret provider (the system keyring, via the
+    // Secret portal) could not be reached just now. Nothing is lost: the same
+    // load() can succeed once the keyring is up or unlocked.
+    void secretsUnavailable();
 
 private:
     ApiClient   *m_api;

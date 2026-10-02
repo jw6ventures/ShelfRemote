@@ -2,6 +2,7 @@
 #include "net/ApiClient.h"
 #include "storage/SecureStore.h"
 
+#include <QDebug>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTimeZone>
@@ -97,7 +98,7 @@ bool TokenStore::load()
             m_secure->remove(m_serverKey + QStringLiteral("/tokens"));
             emit secretsUnreadable();
         } else if (status == SecureStore::RetrieveStatus::ProviderUnavailable) {
-            emit secretsUnreadable();
+            emit secretsUnavailable();
         }
         return false;
     }
@@ -167,7 +168,10 @@ void TokenStore::refresh(std::function<void(bool)> cb)
             // 0) or a 5xx says nothing about the token: sending the user to the
             // login screen for a Wi-Fi blip, mid-book, is far worse than letting
             // this one request fail and refreshing again on the next.
-            if (res.status == 400 || res.status == 401 || res.status == 403)
+            const bool refused = res.status == 400 || res.status == 401 || res.status == 403;
+            qWarning() << "Auth: token refresh failed, HTTP" << res.status
+                       << (refused ? "(refused; signing out)" : "(transient; keeping session)");
+            if (refused)
                 emit refreshFailed();
             settle(false);
             return;
@@ -185,6 +189,7 @@ void TokenStore::refresh(std::function<void(bool)> cb)
         if (rotatedRefresh.isEmpty())
             rotatedRefresh = m_refresh; // keep existing if server did not rotate
         if (access.isEmpty()) {
+            qWarning() << "Auth: token refresh reply carried no access token; signing out";
             emit refreshFailed();
             settle(false);
             return;

@@ -29,6 +29,9 @@ class AuthManager : public QObject
     Q_PROPERTY(QString oidcButtonText READ oidcButtonText NOTIFY authMethodsChanged)
     Q_PROPERTY(QString serverVersion READ serverVersion NOTIFY statusChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY errorChanged)
+    // A neutral progress note for the login screen (e.g. waiting on the keyring);
+    // empty when there is nothing to say. Not an error.
+    Q_PROPERTY(QString notice READ notice NOTIFY noticeChanged)
 
 public:
     enum class State { Disconnected, Checking, NeedsLogin, Authenticating, Authenticated, Error };
@@ -46,6 +49,7 @@ public:
     QString oidcButtonText() const { return m_oidcButtonText; }
     QString serverVersion() const { return m_serverVersion; }
     QString lastError() const { return m_lastError; }
+    QString notice() const { return m_notice; }
     QJsonObject user() const { return m_user; }
 
     // Reachability + /status discovery. Sets base URL on the ApiClient.
@@ -61,6 +65,9 @@ public:
     Q_INVOKABLE void logout();
 
     // Attempts to restore a previously authenticated session for a saved server.
+    // Returns false when there is nothing saved to restore. If the saved tokens are
+    // there but the system keyring is not ready (common right after boot), it
+    // returns true and keeps retrying for a few minutes before asking the user.
     Q_INVOKABLE bool restoreSession(const QUrl &baseUrl, const QString &serverKey);
 
     // Aborts an in-progress OIDC/authenticating attempt and returns to the login
@@ -72,6 +79,7 @@ signals:
     void authMethodsChanged();
     void statusChanged();
     void errorChanged();
+    void noticeChanged();
     void authenticated(const QJsonObject &user);
     void loginFailed(const QString &reason);
     // Emitted at the very start of logout(), while the access token is still valid,
@@ -89,6 +97,12 @@ private:
     // Sets/clears lastError WITHOUT forcing the Error state, so a failed login can
     // show a message while the login form stays usable for a retry.
     void setLastError(const QString &msg);
+    void setNotice(const QString &msg);
+    bool attemptRestore();
+    // Schedules the next restore attempt while the keyring is unavailable; once
+    // the attempts run out, routes to the login screen with an explanation.
+    void waitForKeyring();
+    void stopWaitingForKeyring();
     void clearError();
     void exchangeCode(const QString &code, const QString &state);
     void authorizeAndFinish(); // POST /api/authorize after tokens acquired
@@ -103,9 +117,17 @@ private:
     QString      m_oidcButtonText = QStringLiteral("Login with OpenID");
     QString      m_serverVersion;
     QString      m_lastError;
+    QString      m_notice;
     QJsonObject  m_user;
 
     Pkce         m_pkce;             // live only during an OIDC attempt
     bool         m_oidcInProgress = false;
     QTimer       m_oidcTimeout;      // caps how long we wait for the browser callback
+
+    // Restoring while the keyring is unavailable: what to retry, and how often so far.
+    QTimer       m_keyringRetry;
+    QUrl         m_restoreUrl;
+    QString      m_restoreKey;
+    int          m_keyringAttempts = 0;
+    bool         m_keyringUnavailable = false; // set by TokenStore during load()
 };

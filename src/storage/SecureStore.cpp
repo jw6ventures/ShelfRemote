@@ -181,8 +181,10 @@ QByteArray SecureStore::acquireLocalSecret()
 QByteArray SecureStore::acquirePortalSecret()
 {
     QDBusConnection bus = QDBusConnection::sessionBus();
-    if (!bus.isConnected())
+    if (!bus.isConnected()) {
+        qWarning() << "SecureStore: no session bus; the Secret portal is unreachable";
         return {};
+    }
 
     // The portal writes the secret to the write end of this pipe and closes it.
     int fds[2];

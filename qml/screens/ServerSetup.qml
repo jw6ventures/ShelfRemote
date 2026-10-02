@@ -164,6 +164,18 @@ FocusScope {
         }
 
         Text {
+            // Progress that isn't an error, such as waiting for the keyring to
+            // come up after boot before the saved sign-in can be read.
+            visible: Auth.notice !== ""
+            text: Auth.notice
+            color: Theme.textMuted
+            font.pixelSize: Theme.fontSmall
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignHCenter
+        }
+
+        Text {
             // Show any error message (invalid login, OIDC timeout, unreachable
             // server), not just those that drop into the hard Error state.
             visible: Auth.lastError !== ""
