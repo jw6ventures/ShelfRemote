@@ -35,6 +35,8 @@ class PlaybackSession : public QObject
     Q_PROPERTY(double speed READ speed WRITE setSpeed NOTIFY speedChanged)
     Q_PROPERTY(int chapterIndex READ chapterIndex NOTIFY chapterChanged)
     Q_PROPERTY(QString chapterTitle READ chapterTitle NOTIFY chapterChanged)
+    // [{start, end, title}, ...] in global seconds, as the server sent them.
+    Q_PROPERTY(QJsonArray chapters READ chapters NOTIFY metadataChanged)
     // Sleep timer lives here (not in the Now Playing screen) so navigating away
     // from that screen does not cancel a running countdown. 0 == off.
     Q_PROPERTY(int sleepMinutes READ sleepMinutes NOTIFY sleepTimerChanged)

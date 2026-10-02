@@ -2,14 +2,15 @@ import QtQuick
 import ShelfRemote
 
 // Large transport controls bound to Playback. The five buttons are arrow-
-// navigable (Left/Right). `navDown` lets the host wire Down to the next row, and
-// `playButton` is exposed so the host can wire that row's Up back here.
+// navigable (Left/Right). `navDown`/`navUp` let the host wire Down/Up to the
+// neighbouring rows, and `playButton` is exposed so those rows can wire back here.
 Column {
     id: transport
     spacing: Theme.spacing
     // Live-bound to the persisted user preference (Settings screen writes it).
     property int skipSeconds: AppSettings.skipSeconds
     property Item navDown: null
+    property Item navUp: null
     property alias playButton: playBtn
 
     function fmt(s) {
@@ -56,13 +57,13 @@ Column {
         FocusButton {
             id: prevChapBtn
             text: "⏮ Chapter"
-            KeyNavigation.right: back30; KeyNavigation.down: transport.navDown
+            KeyNavigation.right: back30; KeyNavigation.down: transport.navDown; KeyNavigation.up: transport.navUp
             onClicked: Playback.previousChapter()
         }
         FocusButton {
             id: back30
             text: "« " + transport.skipSeconds + "s"
-            KeyNavigation.left: prevChapBtn; KeyNavigation.right: playBtn; KeyNavigation.down: transport.navDown
+            KeyNavigation.left: prevChapBtn; KeyNavigation.right: playBtn; KeyNavigation.down: transport.navDown; KeyNavigation.up: transport.navUp
             onClicked: Playback.skip(-transport.skipSeconds)
         }
         FocusButton {
@@ -71,19 +72,19 @@ Column {
             // The requested state, so the button doesn't flip to "Play" while a
             // playing stream buffers.
             text: Playback.paused ? "▶ Play" : "⏸ Pause"
-            KeyNavigation.left: back30; KeyNavigation.right: fwd30; KeyNavigation.down: transport.navDown
+            KeyNavigation.left: back30; KeyNavigation.right: fwd30; KeyNavigation.down: transport.navDown; KeyNavigation.up: transport.navUp
             onClicked: Playback.togglePlayPause()
         }
         FocusButton {
             id: fwd30
             text: transport.skipSeconds + "s »"
-            KeyNavigation.left: playBtn; KeyNavigation.right: nextChapBtn; KeyNavigation.down: transport.navDown
+            KeyNavigation.left: playBtn; KeyNavigation.right: nextChapBtn; KeyNavigation.down: transport.navDown; KeyNavigation.up: transport.navUp
             onClicked: Playback.skip(transport.skipSeconds)
         }
         FocusButton {
             id: nextChapBtn
             text: "Chapter ⏭"
-            KeyNavigation.left: fwd30; KeyNavigation.down: transport.navDown
+            KeyNavigation.left: fwd30; KeyNavigation.down: transport.navDown; KeyNavigation.up: transport.navUp
             onClicked: Playback.nextChapter()
         }
     }

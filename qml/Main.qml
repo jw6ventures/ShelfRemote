@@ -34,6 +34,7 @@ ApplicationWindow {
         enabled: Auth.isAuthenticated
         onActivated: {
             if (libraryPicker.opened) { libraryPicker.cancel(); return; }
+            if (chapterPicker.opened) { chapterPicker.cancel(); return; }
             if (stack.depth > 1) stack.pop();
             else if (contentRoot.visible) sidebar.focusSidebar();
         }
@@ -164,7 +165,9 @@ ApplicationWindow {
     } }
     Component { id: settingsComp;   Settings {} }
     Component { id: detailsComp;    ItemDetails {} }
-    Component { id: nowPlayingComp; NowPlaying {} }
+    Component { id: nowPlayingComp; NowPlaying {
+        onRequestChapters: chapterPicker.open()
+    } }
 
     // --- Library switcher overlay -----------------------------------------
     // Modal picker opened from the sidebar's library row. Selecting a library
@@ -173,6 +176,13 @@ ApplicationWindow {
         id: libraryPicker
         onSelected: sidebar.navigate("home")
         onDismissed: sidebar.focusSidebar()
+    }
+
+    // Chapter list over Now Playing. Closing it hands focus back to that screen,
+    // which still remembers the control that opened it.
+    ChapterPicker {
+        id: chapterPicker
+        onClosed: if (stack.currentItem) stack.currentItem.forceActiveFocus()
     }
 
     // --- Transient error toast --------------------------------------------

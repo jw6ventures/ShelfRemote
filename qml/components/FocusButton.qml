@@ -28,6 +28,8 @@ Button {
         color: control.activeFocus || control.down ? "#ffffff" : Theme.textPrimary
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
+        // Only bites when a host narrows the button below its natural width.
+        elide: Text.ElideRight
     }
 
     Keys.onReturnPressed: control.clicked()
