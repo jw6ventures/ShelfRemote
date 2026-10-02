@@ -167,6 +167,15 @@ int main(int argc, char *argv[])
         progress->clear();
         bookmarks->clear();
     });
+    // Any other way out of the signed-in state (the server refused a token
+    // refresh, a saved session couldn't be unlocked) puts the login screen over
+    // the shell, Now Playing included, so nothing could stop the book short of
+    // quitting. Worse, choosing another server there re-points the client while
+    // the session still syncs and loads tracks against it. Stop it here.
+    QObject::connect(auth, &AuthManager::stateChanged, playback, [=]() {
+        if (!auth->isAuthenticated() && playback->active())
+            playback->stopAndClose();
+    });
     // Reflect local playback progress immediately in the browse cards when a
     // session closes. Podcast episodes are NOT item-level progress (the store,
     // like /api/authorize, tracks progress per library item, not per episode), so

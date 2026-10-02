@@ -162,7 +162,13 @@ void TokenStore::refresh(std::function<void(bool)> cb)
             return;
         }
         if (!res.ok) {
-            emit refreshFailed();
+            // Only a server that has looked at the refresh token and refused it
+            // means the session is over. A timeout, a dropped connection (status
+            // 0) or a 5xx says nothing about the token: sending the user to the
+            // login screen for a Wi-Fi blip, mid-book, is far worse than letting
+            // this one request fail and refreshing again on the next.
+            if (res.status == 400 || res.status == 401 || res.status == 403)
+                emit refreshFailed();
             settle(false);
             return;
         }

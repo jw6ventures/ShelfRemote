@@ -45,7 +45,9 @@ public:
     void persist() const;
 
     // Performs POST /auth/refresh. On success updates + persists tokens and calls
-    // cb(true). On failure cb(false); the caller should route the user to login.
+    // cb(true). On failure cb(false); refreshFailed() (route the user to login) is
+    // emitted only when the server rejected the refresh token, not for a transport
+    // error or server fault, which leave the tokens in place for the next attempt.
     void refresh(std::function<void(bool)> cb);
 
     // Parses the "exp" claim from a JWT without verifying the signature (the
