@@ -40,6 +40,15 @@ Prefer a one-off file? Every `v*` tag also attaches a single-file
 `ShelfRemote-<tag>.flatpak` bundle to the GitHub **Release**:
 `flatpak install --user ShelfRemote-v1.2.3.flatpak`.
 
+### Auto-login TVs and the keyring
+
+Under Flatpak, saved sign-ins are protected by the system keyring by default. A
+machine that logs in automatically often leaves the keyring locked, so ShelfRemote
+asks you to sign in again after a reboot. Set **Settings › Saved sign-in** to
+**This device** to keep them encrypted with a key in ShelfRemote's own data folder
+instead. That no longer needs the keyring, but anyone who can use the computer
+account could read it.
+
 ## Roadmap
 - Offline downloads
 - Ebook support

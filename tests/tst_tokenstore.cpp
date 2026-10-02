@@ -111,6 +111,36 @@ private slots:
         // to replace; a transient failure must not discard them.
         QVERIFY(tokens.hasTokens());
     }
+
+    // The case the setting exists for: the keyring is locked, so signing in with
+    // a password works but can't be saved, and the next boot asks again. Moving
+    // sign-ins to this device must save the session in use right then.
+    void movingToTheDeviceSavesTheCurrentSession()
+    {
+        Database::instance().putSetting(QStringLiteral("secretProvider"),
+                                        QStringLiteral("portal-v1"));
+        ApiClient api;
+        SecureStore secure;
+        TokenStore tokens(&api, &secure);
+        tokens.setServerKey(QStringLiteral("tst-tokenstore-move"));
+        tokens.setAccount(QStringLiteral("user-1"));
+        tokens.setTokens(QStringLiteral("access"), QStringLiteral("refresh"));
+        if (Database::instance().getSecret(QStringLiteral("tst-tokenstore-move/tokens")).size() > 0)
+            QSKIP("A Secret portal answered in this environment");
+
+        QVERIFY(tokens.setStorage(SecureStore::Storage::Device)
+                == SecureStore::SwitchResult::Reset);
+
+        SecureStore nextLaunch;
+        TokenStore restored(&api, &nextLaunch);
+        restored.setServerKey(QStringLiteral("tst-tokenstore-move"));
+        restored.setAccount(QStringLiteral("user-1"));
+        QVERIFY(restored.load());
+        QCOMPARE(restored.refreshToken(), QStringLiteral("refresh"));
+
+        Database::instance().putSetting(QStringLiteral("secretProvider"),
+                                        QStringLiteral("local-v1"));
+    }
 };
 
 QTEST_GUILESS_MAIN(TstTokenStore)

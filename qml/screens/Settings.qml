@@ -151,8 +151,67 @@ FocusScope {
                     id: logBtn
                     text: "Save debug log…"
                     KeyNavigation.up: cacheBtn
-                    KeyNavigation.down: signoutBtn
+                    KeyNavigation.down: storageBtn
                     onClicked: logDialog.open()
+                }
+            }
+
+            // Where saved sign-ins are kept. The keyring can stay locked on a box
+            // that logs in automatically, which signs the user out at every boot;
+            // keeping the key on the device trades some protection for not
+            // depending on it, so the choice is the user's and needs a second press.
+            Column {
+                visible: Auth.canChooseSignInStorage
+                spacing: Theme.spacingSmall
+                width: parent.width
+
+                Row {
+                    spacing: Theme.spacing
+                    Text {
+                        text: "Saved sign-in"
+                        color: Theme.textPrimary
+                        font.pixelSize: Theme.fontBody
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 260
+                    }
+                    FocusButton {
+                        id: storageBtn
+                        // Armed by the first press; the second one switches.
+                        property bool armed: false
+                        property string result: ""
+                        text: armed ? (Auth.signInOnDevice ? "Press again to use the keyring"
+                                                           : "Press again to keep on this device")
+                                    : (Auth.signInOnDevice ? "This device" : "System keyring")
+                        KeyNavigation.up: logBtn
+                        KeyNavigation.down: signoutBtn
+                        onActiveFocusChanged: if (!activeFocus) armed = false
+                        onClicked: {
+                            if (!armed) {
+                                armed = true;
+                                result = "";
+                                disarm.restart();
+                                return;
+                            }
+                            armed = false;
+                            result = Auth.setSignInOnDevice(!Auth.signInOnDevice);
+                        }
+                        Timer { id: disarm; interval: 8000; onTriggered: storageBtn.armed = false }
+                    }
+                }
+                Text {
+                    x: 260 + Theme.spacing
+                    width: parent.width - x
+                    wrapMode: Text.WordWrap
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontSmall
+                    text: storageBtn.result !== "" ? storageBtn.result
+                        : storageBtn.armed
+                          ? (Auth.signInOnDevice
+                             ? "Moves the key into the system keyring. Saved servers other than this one may need you to sign in again."
+                             : "Moves the key out of the keyring into a file in ShelfRemote's data folder. Sign-ins no longer depend on the keyring being unlocked, but anyone who can use this computer account could read them.")
+                        : (Auth.signInOnDevice
+                           ? "Encrypted with a key kept in ShelfRemote's own data folder. Works without the keyring; anyone who can use this computer account could read it."
+                           : "Encrypted with a key held by the system keyring. If this computer logs in automatically, the keyring may stay locked and ask you to sign in again.")
                 }
             }
 
@@ -161,7 +220,7 @@ FocusScope {
                 id: signoutBtn
                 text: "Sign out"
                 accentColor: Theme.danger
-                KeyNavigation.up: logBtn
+                KeyNavigation.up: storageBtn
                 onClicked: Auth.logout()
             }
 

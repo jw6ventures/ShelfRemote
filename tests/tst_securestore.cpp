@@ -166,6 +166,76 @@ private slots:
         Database::instance().putSetting(QStringLiteral("secretProvider"),
                                         QStringLiteral("local-v1"));
     }
+
+    // Moving to this device carries the master secret over unchanged, so what was
+    // saved before still opens and nothing needs re-encrypting. (No portal answers
+    // here, so the keyring's secret is stood in for by one already held in memory,
+    // which is exactly what the move reads.)
+    void movingToTheDeviceKeepsSavedSecrets()
+    {
+        const SecretContext ctx{QStringLiteral("srv1"), QStringLiteral("acct1"),
+                                QStringLiteral("tokens"), 1};
+        SecureStore s;
+        s.store(QStringLiteral("srv1/tokens"), QByteArrayLiteral("kept"), ctx);
+        Database::instance().putSetting(QStringLiteral("secretProvider"),
+                                        QStringLiteral("portal-v1"));
+        QFile::remove(AppConfig::dataDir() + QStringLiteral("/master.key"));
+        QVERIFY(s.storage() == SecureStore::Storage::Keyring);
+
+        QVERIFY(s.setStorage(SecureStore::Storage::Device) == SecureStore::SwitchResult::Moved);
+        QVERIFY(s.storage() == SecureStore::Storage::Device);
+        QVERIFY(QFile::exists(AppConfig::dataDir() + QStringLiteral("/master.key")));
+
+        SecureStore fresh; // reads the key from the file, as the next launch will
+        SecureStore::RetrieveStatus st = SecureStore::RetrieveStatus::Missing;
+        QCOMPARE(fresh.retrieve(QStringLiteral("srv1/tokens"), ctx, &st),
+                 QByteArrayLiteral("kept"));
+        QVERIFY(st == SecureStore::RetrieveStatus::Ok);
+        QVERIFY(fresh.setStorage(SecureStore::Storage::Device)
+                == SecureStore::SwitchResult::Unchanged);
+    }
+
+    // With the keyring locked there is no secret to carry: a new key is made, and
+    // the secrets only the old one could open are cleared rather than left to read
+    // as corrupt later.
+    void movingToTheDeviceWithALockedKeyringStartsANewKey()
+    {
+        const SecretContext ctx{QStringLiteral("srv1"), QStringLiteral("acct1"),
+                                QStringLiteral("tokens"), 1};
+        Database::instance().putSetting(QStringLiteral("secretProvider"),
+                                        QStringLiteral("portal-v1"));
+        Database::instance().putSecret(QStringLiteral("srv1/tokens"), QByteArrayLiteral("x"));
+        SecureStore s;
+        if (s.retrieve(QStringLiteral("srv1/tokens"), ctx).size() > 0)
+            QSKIP("A Secret portal answered in this environment");
+
+        QVERIFY(s.setStorage(SecureStore::Storage::Device) == SecureStore::SwitchResult::Reset);
+        QVERIFY(s.storage() == SecureStore::Storage::Device);
+        QVERIFY(Database::instance().getSecret(QStringLiteral("srv1/tokens")).isEmpty());
+
+        s.store(QStringLiteral("srv1/tokens"), QByteArrayLiteral("new"), ctx);
+        SecureStore fresh;
+        QCOMPARE(fresh.retrieve(QStringLiteral("srv1/tokens"), ctx), QByteArrayLiteral("new"));
+    }
+
+    // Asking for the keyring when it can't be reached changes nothing at all.
+    void movingToAnUnreachableKeyringChangesNothing()
+    {
+        const SecretContext ctx{QStringLiteral("srv1"), QStringLiteral("acct1"),
+                                QStringLiteral("tokens"), 1};
+        Database::instance().putSetting(QStringLiteral("secretProvider"),
+                                        QStringLiteral("local-v1"));
+        SecureStore s;
+        s.store(QStringLiteral("srv1/tokens"), QByteArrayLiteral("stay"), ctx);
+
+        const auto result = s.setStorage(SecureStore::Storage::Keyring);
+        if (result != SecureStore::SwitchResult::Failed)
+            QSKIP("A Secret portal answered in this environment");
+        QVERIFY(s.storage() == SecureStore::Storage::Device);
+        QVERIFY(QFile::exists(AppConfig::dataDir() + QStringLiteral("/master.key")));
+        SecureStore fresh;
+        QCOMPARE(fresh.retrieve(QStringLiteral("srv1/tokens"), ctx), QByteArrayLiteral("stay"));
+    }
 };
 
 QTEST_GUILESS_MAIN(TstSecureStore)

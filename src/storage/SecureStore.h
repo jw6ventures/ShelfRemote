@@ -29,9 +29,10 @@ struct SecretContext {
 //     dir, for sessions without a portal.
 // An existing master.key from a release predating this marker is migrated to
 // "local-v1" so an upgrade never strands credentials under a different key.
-// The chosen provider is persisted (setting "secretProvider") and never changed
-// after credentials exist. The portal's opaque continuation token (if any) is
-// persisted (setting "secretPortalToken") and replayed on later acquisitions.
+// The chosen provider is persisted (setting "secretProvider") and never changes on
+// its own after credentials exist; only an explicit setStorage() moves it. The
+// portal's opaque continuation token (if any) is persisted (setting
+// "secretPortalToken") and replayed on later acquisitions.
 //
 // Ciphertext layout in the DB: [1 byte version=0x02][12 byte nonce][16 byte tag][ct].
 class SecureStore : public QObject
@@ -60,6 +61,28 @@ public:
 
     void remove(const QString &key);
 
+    // Where the master secret lives, as the user sees it.
+    enum class Storage {
+        Keyring, // "portal-v1": the system keyring, via the Secret portal
+        Device   // "local-v1": master.key (0600) in the app's data directory
+    };
+    enum class SwitchResult {
+        Unchanged, // already there
+        Moved,     // same master secret, new home: every saved secret still opens
+        Reset,     // a new master secret: secrets saved under the old one are gone
+        Failed     // the target could not be set up; nothing changed
+    };
+    Storage storage() const;
+    // Whether the keyring is an option at all (only through the Flatpak portal).
+    static bool keyringSupported() { return runningUnderFlatpak(); }
+    // Moves the master secret to `target`. Keyring -> Device writes the current
+    // master secret to master.key, so nothing needs re-encrypting; if the keyring
+    // can't hand it over (locked), a new one is generated and the old secrets are
+    // removed (Reset). Device -> Keyring adopts the portal's secret and deletes
+    // master.key; secrets kept under a different key are removed (Reset). Callers
+    // re-save whatever credentials they hold in memory after a Reset.
+    SwitchResult setStorage(Storage target);
+
 private:
     enum class Provider { Unset, Portal, Local };
 
@@ -67,6 +90,7 @@ private:
     QByteArray acquireMasterSecret();     // sticky provider → portal or local
     QByteArray acquirePortalSecret();     // QtDBus Secret portal; empty on failure
     QByteArray acquireLocalSecret();      // 0600 master.key (generated if absent)
+    static bool writeLocalSecret(const QByteArray &secret); // replaces master.key
     static bool runningUnderFlatpak();
 
     QByteArray deriveKey(const QByteArray &context) const;

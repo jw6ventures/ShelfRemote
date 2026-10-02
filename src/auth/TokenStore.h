@@ -6,8 +6,9 @@
 #include <functional>
 #include <vector>
 
+#include "storage/SecureStore.h"
+
 class ApiClient;
-class SecureStore;
 
 // Holds the Audiobookshelf access + refresh tokens for the active server,
 // persists them encrypted, decodes the JWT expiry for proactive refresh, and
@@ -43,6 +44,12 @@ public:
     // Loads persisted tokens for the current server key. Returns hasTokens().
     bool load();
     void persist() const;
+
+    // Where saved sign-ins are kept (see SecureStore::setStorage). The tokens in
+    // use right now are re-saved afterwards, so the current session survives even
+    // a switch that had to start a new key.
+    SecureStore::Storage storage() const;
+    SecureStore::SwitchResult setStorage(SecureStore::Storage target);
 
     // Performs POST /auth/refresh. On success updates + persists tokens and calls
     // cb(true). On failure cb(false); refreshFailed() (route the user to login) is

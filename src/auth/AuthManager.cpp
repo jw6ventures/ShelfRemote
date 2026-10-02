@@ -438,7 +438,8 @@ void AuthManager::waitForKeyring()
         stopWaitingForKeyring();
         setLastError(tr("Your saved sign-in is stored in the system keyring, which is "
                         "locked or not running. Unlock it, then choose your server "
-                        "under Saved servers."));
+                        "under Saved servers. To stop depending on the keyring, sign "
+                        "in and set Settings › Saved sign-in to This device."));
         setState(State::NeedsLogin);
         return;
     }
@@ -456,4 +457,36 @@ void AuthManager::stopWaitingForKeyring()
     m_keyringRetry.stop();
     m_keyringAttempts = 0;
     setNotice(QString());
+}
+
+bool AuthManager::signInOnDevice() const
+{
+    return m_tokens->storage() == SecureStore::Storage::Device;
+}
+
+bool AuthManager::canChooseSignInStorage() const
+{
+    return SecureStore::keyringSupported() || !signInOnDevice();
+}
+
+QString AuthManager::setSignInOnDevice(bool onDevice)
+{
+    const auto result = m_tokens->setStorage(onDevice ? SecureStore::Storage::Device
+                                                      : SecureStore::Storage::Keyring);
+    emit signInStorageChanged();
+    switch (result) {
+    case SecureStore::SwitchResult::Unchanged:
+        return QString();
+    case SecureStore::SwitchResult::Moved:
+        return onDevice ? tr("Saved sign-ins are now kept on this device.")
+                        : tr("Saved sign-ins are now kept in the system keyring.");
+    case SecureStore::SwitchResult::Reset:
+        return tr("Moved. This sign-in was saved again; any other saved servers "
+                  "will ask you to sign in once more.");
+    case SecureStore::SwitchResult::Failed:
+        break;
+    }
+    return onDevice ? tr("Couldn't write the key file; nothing was changed.")
+                    : tr("The system keyring didn't answer (is it locked?); nothing "
+                         "was changed.");
 }

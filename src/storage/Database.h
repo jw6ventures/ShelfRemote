@@ -20,6 +20,7 @@ public:
     void putSecret(const QString &key, const QByteArray &blob);
     QByteArray getSecret(const QString &key) const;
     void removeSecret(const QString &key);
+    void removeAllSecrets();
 
     // --- Settings (string key/value) ---
     void putSetting(const QString &key, const QString &value);

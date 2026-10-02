@@ -123,6 +123,22 @@ void TokenStore::persist() const
                     QJsonDocument(obj).toJson(QJsonDocument::Compact), ctx);
 }
 
+SecureStore::Storage TokenStore::storage() const
+{
+    return m_secure ? m_secure->storage() : SecureStore::Storage::Device;
+}
+
+SecureStore::SwitchResult TokenStore::setStorage(SecureStore::Storage target)
+{
+    if (!m_secure)
+        return SecureStore::SwitchResult::Failed;
+    const auto result = m_secure->setStorage(target);
+    if ((result == SecureStore::SwitchResult::Moved
+         || result == SecureStore::SwitchResult::Reset) && hasTokens())
+        persist();
+    return result;
+}
+
 void TokenStore::refresh(std::function<void(bool)> cb)
 {
     if (m_refresh.isEmpty()) {

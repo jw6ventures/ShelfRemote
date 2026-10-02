@@ -32,6 +32,11 @@ class AuthManager : public QObject
     // A neutral progress note for the login screen (e.g. waiting on the keyring);
     // empty when there is nothing to say. Not an error.
     Q_PROPERTY(QString notice READ notice NOTIFY noticeChanged)
+    // Saved sign-ins are kept in the system keyring (false) or in a key file in
+    // the app's own data folder (true). Switchable only where a keyring is an
+    // option at all, i.e. under Flatpak, or when it is in use now.
+    Q_PROPERTY(bool signInOnDevice READ signInOnDevice NOTIFY signInStorageChanged)
+    Q_PROPERTY(bool canChooseSignInStorage READ canChooseSignInStorage NOTIFY signInStorageChanged)
 
 public:
     enum class State { Disconnected, Checking, NeedsLogin, Authenticating, Authenticated, Error };
@@ -50,6 +55,12 @@ public:
     QString serverVersion() const { return m_serverVersion; }
     QString lastError() const { return m_lastError; }
     QString notice() const { return m_notice; }
+    bool signInOnDevice() const;
+    bool canChooseSignInStorage() const;
+
+    // Moves saved sign-ins to this device (true) or to the keyring (false), and
+    // returns a sentence describing what happened, for the Settings screen.
+    Q_INVOKABLE QString setSignInOnDevice(bool onDevice);
     QJsonObject user() const { return m_user; }
 
     // Reachability + /status discovery. Sets base URL on the ApiClient.
@@ -80,6 +91,7 @@ signals:
     void statusChanged();
     void errorChanged();
     void noticeChanged();
+    void signInStorageChanged();
     void authenticated(const QJsonObject &user);
     void loginFailed(const QString &reason);
     // Emitted at the very start of logout(), while the access token is still valid,
