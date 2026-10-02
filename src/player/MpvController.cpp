@@ -257,8 +257,23 @@ void MpvController::setHttpHeaders(const QString &headers)
     mpv_set_property_string(m_mpv, "http-header-fields", encoded.constData());
 }
 
-void MpvController::play()  { setProperty(QStringLiteral("pause"), false); }
-void MpvController::pause() { setProperty(QStringLiteral("pause"), true); }
+void MpvController::play()  { requestPaused(false); }
+void MpvController::pause() { requestPaused(true); }
+
+void MpvController::requestPaused(bool paused)
+{
+    if (!m_mpv)
+        return;
+    setProperty(QStringLiteral("pause"), paused);
+    // Record the request now rather than when mpv's property event comes back, so
+    // isPaused() is right for whatever runs next: a pause followed at once by a
+    // cross-file seek must reload paused, and a quick second press of Play/Pause
+    // must toggle back. The event confirms it (and updates isPlaying()) shortly.
+    if (paused != m_paused) {
+        m_paused = paused;
+        emit pausedChanged(m_paused);
+    }
+}
 void MpvController::stop()  { command({QStringLiteral("stop")}); }
 
 void MpvController::seekAbsolute(double seconds)

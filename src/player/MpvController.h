@@ -72,6 +72,7 @@ signals:
 
 private:
     void setProperty(const QString &name, const QVariant &value);
+    void requestPaused(bool paused);
     void command(const QStringList &args);
     static void onWakeup(void *ctx);
     void handleEvents();
