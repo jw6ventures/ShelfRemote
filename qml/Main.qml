@@ -126,8 +126,12 @@ ApplicationWindow {
                     // The session ended (stop, end of book, logout): don't strand
                     // the user on a dead player. Handled here rather than in the
                     // screen, which has no StackView attached type in scope.
-                    if (stack.depth > 1) stack.pop();
-                    else sidebar.navigate("home");
+                    if (stack.depth > 1) {
+                        stack.pop();
+                        if (stack.currentItem) stack.currentItem.forceActiveFocus();
+                    } else {
+                        sidebar.navigate("home");
+                    }
                 }
             }
         }
