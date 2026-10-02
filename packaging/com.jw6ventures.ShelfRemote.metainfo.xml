@@ -30,6 +30,17 @@
   </categories>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.1.5" date="2026-10-02">
+        <description>
+          <ul>
+            <li>Adds a Now Playing entry to the sidebar and a chapter picker, and closes Now Playing when playback ends.</li>
+            <li>Sleep timer shows the time left, pauses its countdown while paused, and can stop at the end of a chapter.</li>
+            <li>Fixes desktop media controls, play/pause while buffering, and Previous on books without chapters.</li>
+            <li>Stays signed in through network blips and a slow keyring at boot, with an option to keep sign-ins on the device.</li>
+            <li>Makes every login control reachable by remote, and adds loading and empty states to details and search.</li>
+          </ul>
+        </description>
+    </release>
     <release version="0.1.4" date="2026-09-09">
         <description>
           <ul>

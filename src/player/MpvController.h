@@ -52,6 +52,9 @@ public:
     double positionInFile() const { return m_position; }  // seconds into the file
     double durationOfFile() const { return m_duration; }
     bool isPlaying() const { return m_playing; }
+    // mpv's own pause flag: what the user asked for, as opposed to isPlaying(),
+    // which also reads false while the core is idle between files or buffering.
+    bool isPaused() const { return m_paused; }
     qint64 audioOutputSampleRate() const { return m_outputSampleRate; }
     qint64 audioOutputChannelCount() const { return m_outputChannelCount; }
 
@@ -59,6 +62,7 @@ signals:
     void positionChanged(double positionInFile);
     void durationChanged(double duration);
     void playingChanged(bool playing);
+    void pausedChanged(bool paused);
     void endOfFile();     // current file finished (drives track transitions)
     void fileLoaded();
     // Emitted when mpv opens, closes, or changes the underlying audio output.
@@ -68,6 +72,7 @@ signals:
 
 private:
     void setProperty(const QString &name, const QVariant &value);
+    void requestPaused(bool paused);
     void command(const QStringList &args);
     static void onWakeup(void *ctx);
     void handleEvents();

@@ -2,6 +2,7 @@
 #include "net/ApiClient.h"
 #include "storage/SecureStore.h"
 
+#include <QDebug>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTimeZone>
@@ -97,7 +98,7 @@ bool TokenStore::load()
             m_secure->remove(m_serverKey + QStringLiteral("/tokens"));
             emit secretsUnreadable();
         } else if (status == SecureStore::RetrieveStatus::ProviderUnavailable) {
-            emit secretsUnreadable();
+            emit secretsUnavailable();
         }
         return false;
     }
@@ -120,6 +121,22 @@ void TokenStore::persist() const
     const SecretContext ctx{m_serverKey, m_accountId, QStringLiteral("tokens"), 1};
     m_secure->store(m_serverKey + QStringLiteral("/tokens"),
                     QJsonDocument(obj).toJson(QJsonDocument::Compact), ctx);
+}
+
+SecureStore::Storage TokenStore::storage() const
+{
+    return m_secure ? m_secure->storage() : SecureStore::Storage::Device;
+}
+
+SecureStore::SwitchResult TokenStore::setStorage(SecureStore::Storage target)
+{
+    if (!m_secure)
+        return SecureStore::SwitchResult::Failed;
+    const auto result = m_secure->setStorage(target);
+    if ((result == SecureStore::SwitchResult::Moved
+         || result == SecureStore::SwitchResult::Reset) && hasTokens())
+        persist();
+    return result;
 }
 
 void TokenStore::refresh(std::function<void(bool)> cb)
@@ -162,7 +179,16 @@ void TokenStore::refresh(std::function<void(bool)> cb)
             return;
         }
         if (!res.ok) {
-            emit refreshFailed();
+            // Only a server that has looked at the refresh token and refused it
+            // means the session is over. A timeout, a dropped connection (status
+            // 0) or a 5xx says nothing about the token: sending the user to the
+            // login screen for a Wi-Fi blip, mid-book, is far worse than letting
+            // this one request fail and refreshing again on the next.
+            const bool refused = res.status == 400 || res.status == 401 || res.status == 403;
+            qWarning() << "Auth: token refresh failed, HTTP" << res.status
+                       << (refused ? "(refused; signing out)" : "(transient; keeping session)");
+            if (refused)
+                emit refreshFailed();
             settle(false);
             return;
         }
@@ -179,6 +205,7 @@ void TokenStore::refresh(std::function<void(bool)> cb)
         if (rotatedRefresh.isEmpty())
             rotatedRefresh = m_refresh; // keep existing if server did not rotate
         if (access.isEmpty()) {
+            qWarning() << "Auth: token refresh reply carried no access token; signing out";
             emit refreshFailed();
             settle(false);
             return;

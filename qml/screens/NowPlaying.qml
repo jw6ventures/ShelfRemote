@@ -5,6 +5,11 @@ import ShelfRemote
 FocusScope {
     id: root
     focus: true
+    // Lets the shell recognise this screen on top of the stack.
+    objectName: "nowPlaying"
+    // Asks the shell to open the chapter picker (it owns the overlay so that Back
+    // closes the picker rather than this screen).
+    signal requestChapters()
 
     property string coverUrl: ""
     function refreshCover() { coverUrl = Covers.localUrl(Playback.itemId, 400, 640); }
@@ -12,6 +17,18 @@ FocusScope {
     // Bookmarks for the current item (jump / delete list below the transport).
     property var marks: []
     function refreshBookmarks() { marks = Bookmarks.forItem(Playback.itemId); }
+    // Removing a bookmark rebuilds the list, destroying the focused row with it;
+    // focus then fell to the screen itself, where no arrow key did anything. Land
+    // on the row that took its place (or the one above, or the Bookmark button).
+    function removeBookmark(index, time) {
+        Bookmarks.remove(Playback.itemId, time);
+        Qt.callLater(function() {
+            if (bmRep.count > 0)
+                bmRep.itemAt(Math.min(index, bmRep.count - 1)).forceActiveFocus();
+            else
+                bookmarkBtn.forceActiveFocus();
+        });
+    }
     function fmtTime(s) {
         s = Math.max(0, Math.floor(s));
         var h = Math.floor(s / 3600);
@@ -37,16 +54,6 @@ FocusScope {
     Connections {
         target: Covers
         function onCoverReady(id, url) { if (id === Playback.itemId) root.coverUrl = url; }
-    }
-    // When the session ends (stop, end of book, logout), don't strand the user on a
-    // dead Now Playing screen — pop back, but only if we're still the top screen.
-    Connections {
-        target: Playback
-        function onActiveChanged() {
-            if (!Playback.active && root.StackView.view
-                    && root.StackView.view.currentItem === root)
-                root.StackView.view.pop();
-        }
     }
 
     // The cover, transport, buttons and bookmark list add up to more than a 720p
@@ -89,7 +96,8 @@ FocusScope {
                 elide: Text.ElideRight
             }
             Text {
-                text: Playback.chapterTitle || Playback.author
+                text: Playback.author
+                visible: text.length > 0
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontBody
                 width: parent.width
@@ -97,10 +105,34 @@ FocusScope {
                 elide: Text.ElideRight
             }
 
+            // Where in the book this is, and the way into the chapter list. It used
+            // to replace the author line, and offered no way to pick a chapter
+            // other than stepping through them one at a time.
+            FocusButton {
+                id: chapterBtn
+                visible: Playback.chapters.length > 0
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: Math.min(implicitWidth, parent.width)
+                text: {
+                    var n = Playback.chapters.length;
+                    var i = Playback.chapterIndex;
+                    if (i < 0 || i >= n)
+                        return "Chapters (" + n + ")";
+                    var left = (Playback.chapters[i].end - Playback.position)
+                               / Math.max(0.01, Playback.speed);
+                    return "Ch " + (i + 1) + " of " + n
+                           + (Playback.chapterTitle ? "  ·  " + Playback.chapterTitle : "")
+                           + "  ·  " + root.fmtTime(left) + " left";
+                }
+                KeyNavigation.down: transport.playButton
+                onClicked: root.requestChapters()
+            }
+
             TransportBar {
                 id: transport
                 width: parent.width
                 navDown: speedBtn
+                navUp: chapterBtn.visible ? chapterBtn : null
             }
 
             // Speed + sleep timer row
@@ -114,18 +146,15 @@ FocusScope {
                     KeyNavigation.right: sleepBtn
                     KeyNavigation.up: transport.playButton
                     KeyNavigation.down: bmRep.count > 0 ? bmRep.itemAt(0) : null
-                    onClicked: {
-                        var next = Playback.speed + 0.25;
-                        if (next > 3.0) next = 0.75;
-                        Playback.setSpeed(next);
-                    }
+                    onClicked: Playback.setSpeed(AppSettings.nextRate(Playback.speed))
                 }
                 FocusButton {
                     id: sleepBtn
                     // The countdown itself lives in Playback (survives leaving this
                     // screen); this button only reflects and cycles it.
-                    text: Playback.sleepMinutes > 0 ? ("Sleep: " + Playback.sleepMinutes + "m")
-                                                    : "Sleep timer"
+                    text: Playback.sleepAtChapterEnd ? "Sleep: end of chapter"
+                          : Playback.sleepMinutes > 0 ? ("Sleep: " + root.fmtTime(Playback.sleepRemaining))
+                          : "Sleep timer"
                     KeyNavigation.left: speedBtn
                     KeyNavigation.right: bookmarkBtn
                     KeyNavigation.up: transport.playButton
@@ -165,7 +194,10 @@ FocusScope {
                 spacing: Theme.spacing
 
                 Text {
-                    text: "Bookmarks"
+                    // Many remotes have Menu but no Delete key; say which works.
+                    text: "Bookmarks   ·   Menu or Delete removes the selected one"
+                    width: parent.width
+                    elide: Text.ElideRight
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontSmall
                 }
@@ -182,8 +214,8 @@ FocusScope {
                         KeyNavigation.down: index < root.marks.length - 1
                                             ? bmRep.itemAt(index + 1) : null
                         onClicked: Playback.seekGlobal(modelData.time)
-                        Keys.onMenuPressed: Bookmarks.remove(Playback.itemId, modelData.time)
-                        Keys.onDeletePressed: Bookmarks.remove(Playback.itemId, modelData.time)
+                        Keys.onMenuPressed: root.removeBookmark(index, modelData.time)
+                        Keys.onDeletePressed: root.removeBookmark(index, modelData.time)
                     }
                 }
             }

@@ -28,19 +28,32 @@ FocusScope {
             if (entries[i].name === name) return i;
         return -1;
     }
-    onCurrentNameChanged: {
+    function syncCursor() {
         var i = indexOfName(currentName);
         if (i >= 0)
             list.currentIndex = i;
     }
+    onCurrentNameChanged: syncCursor()
 
-    readonly property var entries: [
-        { name: "home",     label: "Home" },
-        { name: "library",  label: "Library" },
-        { name: "playlists", label: "Playlists" },
-        { name: "search",   label: "Search" },
-        { name: "settings", label: "Settings" }
-    ]
+    // "Now Playing" heads the rail only while a session is open: backing out of
+    // the Now Playing screen otherwise left no way to return to it short of
+    // restarting the book. It is not a section of its own (activating it opens the
+    // screen over the current one), so it never becomes currentName.
+    readonly property var entries: {
+        var e = [];
+        if (Playback.active)
+            e.push({ name: "nowplaying", label: "Now Playing", subtitle: Playback.title });
+        return e.concat([
+            { name: "home",     label: "Home" },
+            { name: "library",  label: "Library" },
+            { name: "playlists", label: "Playlists" },
+            { name: "search",   label: "Search" },
+            { name: "settings", label: "Settings" }
+        ]);
+    }
+    // Swapping the model resets the cursor to the top; put it back on the section
+    // the user is in.
+    onEntriesChanged: Qt.callLater(syncCursor)
 
     // Only worth showing a switcher when there is more than one library.
     readonly property bool hasMultipleLibraries: Backend.libraries.length > 1
@@ -139,10 +152,11 @@ FocusScope {
         }
 
         delegate: Item {
+            id: entry
             required property var modelData
             required property int index
             width: list.width
-            height: 64
+            height: modelData.subtitle ? 84 : 64
             focus: ListView.isCurrentItem
 
             Rectangle {
@@ -154,13 +168,31 @@ FocusScope {
                 border.width: parent.activeFocus ? Theme.focusBorder : 0
                 border.color: Theme.focusRing
 
-                Text {
+                Column {
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.left: parent.left
+                    anchors.right: parent.right
                     anchors.leftMargin: Theme.spacing
-                    text: modelData.label
-                    font.pixelSize: Theme.fontBody
-                    color: parent.parent.activeFocus ? "#ffffff" : Theme.textPrimary
+                    anchors.rightMargin: Theme.spacing
+                    Text {
+                        width: parent.width
+                        // The play state glyph is bound here rather than baked into
+                        // `entries`, so a pause doesn't rebuild the model under the cursor.
+                        text: modelData.name === "nowplaying"
+                              ? (Playback.paused ? "⏸  " : "▶  ") + modelData.label
+                              : modelData.label
+                        font.pixelSize: Theme.fontBody
+                        elide: Text.ElideRight
+                        color: entry.activeFocus ? "#ffffff" : Theme.textPrimary
+                    }
+                    Text {
+                        width: parent.width
+                        visible: !!modelData.subtitle
+                        text: modelData.subtitle || ""
+                        font.pixelSize: Theme.fontSmall
+                        elide: Text.ElideRight
+                        color: entry.activeFocus ? "#e8f1ff" : Theme.textMuted
+                    }
                 }
             }
 

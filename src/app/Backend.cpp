@@ -172,8 +172,10 @@ void Backend::clearSearch()
 
 void Backend::search(const QString &query)
 {
-    if (m_currentLibraryId.isEmpty())
+    if (m_currentLibraryId.isEmpty()) {
+        emit searchFinished(query, false);
         return;
+    }
     if (query.trimmed().isEmpty()) {
         clearSearch();
         return;
@@ -183,11 +185,17 @@ void Backend::search(const QString &query)
     q.addQueryItem(QStringLiteral("limit"), QStringLiteral("50"));
     const quint64 gen = ++m_searchGeneration;
     const quint64 serverGen = m_serverGeneration;
-    m_api->get(m_api->endpoints().search(m_currentLibraryId, q), [this, gen, serverGen](const ApiResponse &res) {
+    m_api->get(m_api->endpoints().search(m_currentLibraryId, q), [this, gen, serverGen, query](const ApiResponse &res) {
         // Ignore a response the user has already typed past, or one from a server
         // we have since switched away from.
-        if (res.stale || gen != m_searchGeneration || serverGen != m_serverGeneration || !res.ok)
+        if (res.stale || gen != m_searchGeneration || serverGen != m_serverGeneration)
             return;
+        if (!res.ok) {
+            // Said out loud: an empty grid would read as "nothing matched".
+            emit errorOccurred(tr("Search failed"));
+            emit searchFinished(query, false);
+            return;
+        }
         // The search endpoint returns grouped results (book, series, authors,
         // podcast, episodes). Flatten the book/podcast libraryItem hits.
         const QJsonObject obj = res.json();
@@ -199,6 +207,7 @@ void Backend::search(const QString &query)
             }
         }
         m_searchResults->setItems(flat);
+        emit searchFinished(query, true);
     });
 }
 
@@ -247,6 +256,7 @@ void Backend::loadItem(const QString &itemId)
                 return;
             }
             emit errorOccurred(tr("Failed to load item"));
+            emit itemLoadFailed(itemId);
             return;
         }
         const QJsonObject obj = res.json();

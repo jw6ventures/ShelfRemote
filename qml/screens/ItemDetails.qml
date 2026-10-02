@@ -16,9 +16,13 @@ FocusScope {
 
     Connections {
         target: Backend
+        function onItemLoadFailed(id) {
+            if (id === root.itemId) root.loadFailed = true;
+        }
         function onItemLoaded(loaded) {
             if (loaded.id !== root.itemId) return;
             root.item = loaded;
+            root.loadFailed = false;
             // Land focus on the primary action once the item's type is known
             // (the Play button for a book, the episode list for a podcast).
             if (!root._focused) {
@@ -29,9 +33,34 @@ FocusScope {
         }
     }
 
+    // Until the item arrives its type is unknown, so a podcast would show the book
+    // layout with a live Play button (which then failed with no episode chosen).
+    readonly property bool loaded: item.id !== undefined
+    property bool loadFailed: false
+
     readonly property var media: item.media ? item.media : ({})
     readonly property var meta: media.metadata ? media.metadata : ({})
-    readonly property var progress: item.userMediaProgress ? item.userMediaProgress : ({})
+    // Progress comes from the shared store when it knows the item, falling back to
+    // the snapshot in the item payload. The store is what a finished listening
+    // session updates, so coming back here after playback shows where the user got
+    // to rather than where they were when the page opened.
+    property int progressRevision: 0
+    Connections {
+        target: Progress
+        function onChanged() { root.progressRevision++; }
+    }
+    readonly property var progress: {
+        root.progressRevision; // re-read whenever the store changes
+        var p = item.userMediaProgress ? item.userMediaProgress : ({});
+        if (!root.itemId || !Progress.has(root.itemId))
+            return p;
+        return {
+            currentTime: Progress.currentTime(root.itemId),
+            progress: Progress.fraction(root.itemId),
+            isFinished: Progress.isFinished(root.itemId),
+            startedAt: Progress.startedAtMs(root.itemId) || p.startedAt
+        };
+    }
     readonly property real totalSecs: media.duration ? media.duration : 0
     readonly property real doneSecs: progress.currentTime ? progress.currentTime : 0
     readonly property real pct: progress.progress ? progress.progress : 0
@@ -109,11 +138,20 @@ FocusScope {
                     text: (root.meta.authorName || "") +
                           (root.meta.narratorName ? "  ·  Narrated by " + root.meta.narratorName : "")
                     color: Theme.textMuted; font.pixelSize: Theme.fontBody; visible: text.length > 0
+                    wrapMode: Text.WordWrap; width: parent.width
+                }
+                Text {
+                    visible: !root.loaded
+                    text: root.loadFailed ? "Couldn't load this item. Press Back and try again."
+                                          : "Loading…"
+                    color: root.loadFailed ? Theme.danger : Theme.textMuted
+                    font.pixelSize: Theme.fontBody
+                    wrapMode: Text.WordWrap; width: parent.width
                 }
 
                 // --- Progress panel ---
                 Rectangle {
-                    visible: root.hasProgress || root.progress.isFinished
+                    visible: root.hasProgress || !!root.progress.isFinished
                     width: parent.width
                     height: progCol.height + Theme.spacing * 2
                     radius: Theme.radius
@@ -171,6 +209,7 @@ FocusScope {
 
                 Row {
                     spacing: Theme.spacing
+                    visible: root.loaded
                     FocusButton {
                         id: playBtn
                         focus: true

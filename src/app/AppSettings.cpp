@@ -47,6 +47,15 @@ void AppSettings::setDefaultRate(double rate)
     emit defaultRateChanged();
 }
 
+double AppSettings::nextRate(double current) const
+{
+    static constexpr double kSteps[] = {0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0};
+    for (const double step : kSteps)
+        if (step > current + 0.001)
+            return step;
+    return kSteps[0];
+}
+
 void AppSettings::setAudioDevice(const QString &name)
 {
     const QString n = name.isEmpty() ? QStringLiteral("auto") : name;

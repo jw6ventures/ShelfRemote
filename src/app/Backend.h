@@ -66,6 +66,11 @@ signals:
     void librariesChanged();
     void currentLibraryChanged();
     void itemLoaded(const QVariantMap &item);
+    // loadItem() got nothing to show: the request failed and no copy was cached.
+    void itemLoadFailed(const QString &itemId);
+    // A search() call settled (results replaced, or ok == false on failure). Not
+    // emitted for a query superseded by a newer one or by clearSearch().
+    void searchFinished(const QString &query, bool ok);
     void errorOccurred(const QString &message);
     // Emitted when a Home series/author card should switch the shell to the
     // (now filtered) library grid.

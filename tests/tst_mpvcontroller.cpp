@@ -101,6 +101,43 @@ private slots:
         QCOMPARE(reconfigurations, reconfigsAtFirstEof);
         QCOMPARE(eofCount, 1); // second track is still playing
     }
+
+    // isPaused() is the user's request, and code acts on it straight after making
+    // one: a pause followed at once by a cross-file seek must reload paused, and a
+    // quick second press must toggle back. So it has to read right immediately,
+    // not only once mpv's property event has come back.
+    void aPauseRequestReadsBackImmediately()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString track = dir.filePath(QStringLiteral("track.wav"));
+        QVERIFY(writeSilentWav(track, 48000, 2, 3000));
+
+        std::setlocale(LC_NUMERIC, "C");
+        MpvController player;
+        QVERIFY(player.init());
+        player.setAudioDevice(QStringLiteral("null"));
+
+        player.loadPlaylist({QUrl::fromLocalFile(track).toString()}, QString());
+        QTRY_VERIFY_WITH_TIMEOUT(player.isPlaying(), 3000);
+        QVERIFY(!player.isPaused());
+
+        player.pause();
+        QVERIFY(player.isPaused()); // no event loop turn in between
+        QTRY_VERIFY_WITH_TIMEOUT(!player.isPlaying(), 2000);
+
+        player.play();
+        QVERIFY(!player.isPaused());
+        QTRY_VERIFY_WITH_TIMEOUT(player.isPlaying(), 2000);
+
+        // What a paused cross-file seek does: load (which requests play), then pause.
+        player.loadPlaylist({QUrl::fromLocalFile(track).toString()}, QString(), 1.0);
+        player.pause();
+        QVERIFY(player.isPaused());
+        QTest::qWait(500);
+        QVERIFY(player.isPaused());
+        QVERIFY(!player.isPlaying());
+    }
 };
 
 QTEST_GUILESS_MAIN(TestMpvController)

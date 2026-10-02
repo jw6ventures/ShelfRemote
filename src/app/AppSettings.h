@@ -29,6 +29,11 @@ public:
     QString audioDevice() const { return m_audioDevice; }
     void setAudioDevice(const QString &name);
 
+    // The playback-rate step after `current`, wrapping to the slowest. Shared by
+    // the Now Playing speed button and the default-rate setting so both offer the
+    // same steps, and a rate set elsewhere (MPRIS) snaps onto them.
+    Q_INVOKABLE double nextRate(double current) const;
+
 signals:
     void skipSecondsChanged();
     void defaultRateChanged();

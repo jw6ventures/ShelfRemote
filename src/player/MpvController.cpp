@@ -25,6 +25,8 @@ MpvController::MpvController(QObject *parent)
 MpvController::~MpvController()
 {
     if (m_mpv) {
+        // Stop mpv's thread from posting wakeups to an object mid-destruction.
+        mpv_set_wakeup_callback(m_mpv, nullptr, nullptr);
         mpv_terminate_destroy(m_mpv);
         m_mpv = nullptr;
     }
@@ -100,7 +102,11 @@ void MpvController::handleEvents()
                 m_duration = *static_cast<double *>(prop->data);
                 emit durationChanged(m_duration);
             } else if (ev->reply_userdata == kPause && prop->format == MPV_FORMAT_FLAG) {
-                m_paused = *static_cast<int *>(prop->data) != 0;
+                const bool paused = *static_cast<int *>(prop->data) != 0;
+                if (paused != m_paused) {
+                    m_paused = paused;
+                    emit pausedChanged(m_paused);
+                }
                 updatePlaying();
             } else if (ev->reply_userdata == kCoreIdle && prop->format == MPV_FORMAT_FLAG) {
                 m_coreIdle = *static_cast<int *>(prop->data) != 0;
@@ -251,18 +257,37 @@ void MpvController::setHttpHeaders(const QString &headers)
     mpv_set_property_string(m_mpv, "http-header-fields", encoded.constData());
 }
 
-void MpvController::play()  { setProperty(QStringLiteral("pause"), false); }
-void MpvController::pause() { setProperty(QStringLiteral("pause"), true); }
+void MpvController::play()  { requestPaused(false); }
+void MpvController::pause() { requestPaused(true); }
+
+void MpvController::requestPaused(bool paused)
+{
+    if (!m_mpv)
+        return;
+    setProperty(QStringLiteral("pause"), paused);
+    // Record the request now rather than when mpv's property event comes back, so
+    // isPaused() is right for whatever runs next: a pause followed at once by a
+    // cross-file seek must reload paused, and a quick second press of Play/Pause
+    // must toggle back. The event confirms it (and updates isPlaying()) shortly.
+    if (paused != m_paused) {
+        m_paused = paused;
+        emit pausedChanged(m_paused);
+    }
+}
 void MpvController::stop()  { command({QStringLiteral("stop")}); }
 
 void MpvController::seekAbsolute(double seconds)
 {
-    command({QStringLiteral("seek"), QString::number(seconds), QStringLiteral("absolute")});
+    // Fixed-point: the default six significant digits round to whole seconds past
+    // ~27.7 hours, which single-file audiobooks reach.
+    command({QStringLiteral("seek"), QString::number(seconds, 'f', 3),
+             QStringLiteral("absolute")});
 }
 
 void MpvController::seekRelative(double deltaSeconds)
 {
-    command({QStringLiteral("seek"), QString::number(deltaSeconds), QStringLiteral("relative")});
+    command({QStringLiteral("seek"), QString::number(deltaSeconds, 'f', 3),
+             QStringLiteral("relative")});
 }
 
 void MpvController::setSpeed(double speed)

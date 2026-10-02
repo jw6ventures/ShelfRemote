@@ -73,11 +73,11 @@ class MprisPlayerAdaptor : public QDBusAbstractAdaptor
     Q_PROPERTY(double Volume READ volume WRITE setVolume)
     Q_PROPERTY(qlonglong Position READ position)
     Q_PROPERTY(QVariantMap Metadata READ metadata)
-    Q_PROPERTY(bool CanGoNext READ canControl)
-    Q_PROPERTY(bool CanGoPrevious READ canControl)
-    Q_PROPERTY(bool CanPlay READ canControl)
-    Q_PROPERTY(bool CanPause READ canControl)
-    Q_PROPERTY(bool CanSeek READ canControl)
+    Q_PROPERTY(bool CanGoNext READ canAct)
+    Q_PROPERTY(bool CanGoPrevious READ canAct)
+    Q_PROPERTY(bool CanPlay READ canAct)
+    Q_PROPERTY(bool CanPause READ canAct)
+    Q_PROPERTY(bool CanSeek READ canAct)
     Q_PROPERTY(bool CanControl READ canControl)
 public:
     MprisPlayerAdaptor(MprisAdapter *owner, PlaybackSession *session);
@@ -91,7 +91,10 @@ public:
     void setVolume(double v);
     qlonglong position() const;         // microseconds
     QVariantMap metadata() const;
+    // CanControl is fixed for the player's lifetime (the spec forbids it from
+    // changing); the individual actions are only offered while a session is open.
     bool canControl() const { return true; }
+    bool canAct() const;
 
 public slots:
     void Play();

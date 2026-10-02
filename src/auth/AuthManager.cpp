@@ -6,11 +6,21 @@
 #include "server/ServerProfile.h"
 #include "storage/Database.h"
 
+#include <QDebug>
 #include <QDesktopServices>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QUrlQuery>
+
+#include <iterator>
+
+namespace {
+// Gaps between restore attempts while the keyring is unavailable: about two and a
+// half minutes in all. Enough for a slow boot to bring the portal and keyring up,
+// without repeating unlock prompts indefinitely if the keyring is simply locked.
+constexpr int kKeyringRetrySeconds[] = {2, 5, 10, 20, 40, 60};
+} // namespace
 
 AuthManager::AuthManager(ApiClient *api, TokenStore *tokens, UriHandler *uris, QObject *parent)
     : QObject(parent)
@@ -22,12 +32,27 @@ AuthManager::AuthManager(ApiClient *api, TokenStore *tokens, UriHandler *uris, Q
     connect(m_tokens, &TokenStore::refreshFailed, this, [this]() {
         setState(State::NeedsLogin);
     });
-    // Persisted tokens exist but couldn't be unlocked (legacy blob, context change,
-    // or the keyring provider was unavailable). Surface a distinct one-time message
-    // and send the user to login; only the tokens were dropped.
+    // Persisted tokens exist but can never be unlocked (legacy blob or context
+    // change). Surface a distinct one-time message and send the user to login;
+    // only the tokens were dropped.
     connect(m_tokens, &TokenStore::secretsUnreadable, this, [this]() {
+        qWarning() << "Auth: saved sign-in could not be decrypted; it was discarded";
         setLastError(tr("Your saved session couldn't be unlocked; please sign in again"));
         setState(State::NeedsLogin);
+    });
+    // The keyring was not reachable. Only noted here: attemptRestore() decides
+    // whether to wait and retry.
+    connect(m_tokens, &TokenStore::secretsUnavailable, this, [this]() {
+        m_keyringUnavailable = true;
+    });
+    m_keyringRetry.setSingleShot(true);
+    connect(&m_keyringRetry, &QTimer::timeout, this, [this]() {
+        // Nothing to restore after all (the saved sign-in went away meanwhile):
+        // don't leave the login screen spinning on an attempt that has ended.
+        if (!attemptRestore()) {
+            stopWaitingForKeyring();
+            setState(State::NeedsLogin);
+        }
     });
 
     // If the browser handoff never comes back (user closed the tab, IdP error page,
@@ -47,8 +72,17 @@ void AuthManager::setState(State s)
 {
     if (m_state == s)
         return;
+    qInfo() << "Auth: state" << m_state << "->" << s;
     m_state = s;
     emit stateChanged();
+}
+
+void AuthManager::setNotice(const QString &msg)
+{
+    if (m_notice == msg)
+        return;
+    m_notice = msg;
+    emit noticeChanged();
 }
 
 void AuthManager::setError(const QString &msg)
@@ -74,6 +108,7 @@ void AuthManager::clearError()
 
 void AuthManager::cancelAuth()
 {
+    stopWaitingForKeyring();
     m_oidcTimeout.stop();
     m_oidcInProgress = false;
     if (m_state == State::Authenticating || m_state == State::Checking)
@@ -82,6 +117,7 @@ void AuthManager::cancelAuth()
 
 void AuthManager::checkServer(const QUrl &baseUrl)
 {
+    stopWaitingForKeyring(); // the user picked a server by hand; stop restoring
     m_api->setBaseUrl(baseUrl);
     // Changing origin: drop any prior server's in-memory bearer and cookies so the
     // public /status, /login, and OIDC requests below never carry another server's
@@ -282,6 +318,7 @@ void AuthManager::authorizeAndFinish()
         if (!res.ok) {
             // The token is revoked/expired (401/403) or the server is unreachable.
             // Either way we must NOT open the authenticated UI or save the server.
+            qWarning() << "Auth: /api/authorize failed, HTTP" << res.status;
             if (res.status == 401 || res.status == 403)
                 m_tokens->clear();
             setLastError(tr("Your session could not be verified; please sign in again"));
@@ -316,6 +353,7 @@ void AuthManager::logout()
     // Doing this first prevents a lingering session from later syncing or resolving
     // its track URLs against whatever server is selected next.
     emit sessionEnding();
+    stopWaitingForKeyring();
 
     QNetworkRequest req = m_api->makeRequest(m_api->endpoints().logout());
     req.setRawHeader("x-refresh-token", m_tokens->refreshToken().toUtf8());
@@ -345,6 +383,17 @@ void AuthManager::logout()
 
 bool AuthManager::restoreSession(const QUrl &baseUrl, const QString &serverKey)
 {
+    stopWaitingForKeyring();
+    m_restoreUrl = baseUrl;
+    m_restoreKey = serverKey;
+    qInfo() << "Auth: restoring saved sign-in for" << baseUrl.host();
+    return attemptRestore();
+}
+
+bool AuthManager::attemptRestore()
+{
+    const QUrl baseUrl = m_restoreUrl;
+    const QString serverKey = m_restoreKey;
     m_api->setBaseUrl(baseUrl);
     m_tokens->setServerKey(serverKey);
     // Bind the AAD to the saved account for this server so the persisted tokens
@@ -357,9 +406,20 @@ bool AuthManager::restoreSession(const QUrl &baseUrl, const QString &serverKey)
         }
     }
     m_tokens->setAccount(accountId);
-    if (!m_tokens->load())
+    m_keyringUnavailable = false;
+    if (!m_tokens->load()) {
+        if (m_keyringUnavailable) {
+            // The tokens are there, but the keyring that unlocks them is not up
+            // yet (the portal is still starting after boot, or the keyring is
+            // locked). Showing the login screen now discarded a perfectly good
+            // session on what is usually a matter of seconds.
+            waitForKeyring();
+            return true;
+        }
         return false;
+    }
 
+    stopWaitingForKeyring();
     setState(State::Authenticating);
     auto proceed = [this]() { authorizeAndFinish(); };
     if (m_tokens->needsRefresh())
@@ -369,4 +429,64 @@ bool AuthManager::restoreSession(const QUrl &baseUrl, const QString &serverKey)
     else
         proceed();
     return true;
+}
+
+void AuthManager::waitForKeyring()
+{
+    if (m_keyringAttempts >= int(std::size(kKeyringRetrySeconds))) {
+        qWarning() << "Auth: system keyring still unavailable; asking the user";
+        stopWaitingForKeyring();
+        setLastError(tr("Your saved sign-in is stored in the system keyring, which is "
+                        "locked or not running. Unlock it, then choose your server "
+                        "under Saved servers. To stop depending on the keyring, sign "
+                        "in and set Settings › Saved sign-in to This device."));
+        setState(State::NeedsLogin);
+        return;
+    }
+    const int delay = kKeyringRetrySeconds[m_keyringAttempts++];
+    qInfo() << "Auth: system keyring unavailable; retrying in" << delay << "s (attempt"
+            << m_keyringAttempts << "of" << int(std::size(kKeyringRetrySeconds)) << ")";
+    clearError();
+    setNotice(tr("Waiting for the system keyring to unlock your saved sign-in…"));
+    setState(State::Authenticating);
+    m_keyringRetry.start(delay * 1000);
+}
+
+void AuthManager::stopWaitingForKeyring()
+{
+    m_keyringRetry.stop();
+    m_keyringAttempts = 0;
+    setNotice(QString());
+}
+
+bool AuthManager::signInOnDevice() const
+{
+    return m_tokens->storage() == SecureStore::Storage::Device;
+}
+
+bool AuthManager::canChooseSignInStorage() const
+{
+    return SecureStore::keyringSupported() || !signInOnDevice();
+}
+
+QString AuthManager::setSignInOnDevice(bool onDevice)
+{
+    const auto result = m_tokens->setStorage(onDevice ? SecureStore::Storage::Device
+                                                      : SecureStore::Storage::Keyring);
+    emit signInStorageChanged();
+    switch (result) {
+    case SecureStore::SwitchResult::Unchanged:
+        return QString();
+    case SecureStore::SwitchResult::Moved:
+        return onDevice ? tr("Saved sign-ins are now kept on this device.")
+                        : tr("Saved sign-ins are now kept in the system keyring.");
+    case SecureStore::SwitchResult::Reset:
+        return tr("Moved. This sign-in was saved again; any other saved servers "
+                  "will ask you to sign in once more.");
+    case SecureStore::SwitchResult::Failed:
+        break;
+    }
+    return onDevice ? tr("Couldn't write the key file; nothing was changed.")
+                    : tr("The system keyring didn't answer (is it locked?); nothing "
+                         "was changed.");
 }

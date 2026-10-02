@@ -64,14 +64,18 @@ PlaybackSession::PlaybackSession(ApiClient *api, MpvController *mpv, QObject *pa
     // rather than close, so the user can resume from exactly where they drifted off.
     m_sleepTimer.setSingleShot(true);
     connect(&m_sleepTimer, &QTimer::timeout, this, [this]() {
+        // Disarm first: pausing reports not-playing, which would otherwise try to
+        // hold a countdown that has just finished.
+        clearSleepTimer();
         pause();
-        m_sleepMinutes = 0;
-        emit sleepTimerChanged();
     });
+    m_sleepTick.setInterval(1000);
+    connect(&m_sleepTick, &QTimer::timeout, this, &PlaybackSession::sleepRemainingChanged);
 
     connect(m_mpv, &MpvController::positionChanged, this, &PlaybackSession::onMpvPosition);
     connect(m_mpv, &MpvController::endOfFile, this, &PlaybackSession::onEndOfFile);
     connect(m_mpv, &MpvController::playingChanged, this, &PlaybackSession::onPlayingChanged);
+    connect(m_mpv, &MpvController::pausedChanged, this, &PlaybackSession::pausedChanged);
     connect(m_api, &ApiClient::accessTokenChanged, this, [this]() {
         if (m_active && m_currentPlaylistUsesAuth) {
             m_mpv->setHttpHeaders(QStringLiteral("Authorization: Bearer ") +
@@ -94,6 +98,11 @@ PlaybackSession::PlaybackSession(ApiClient *api, MpvController *mpv, QObject *pa
 double PlaybackSession::speed() const
 {
     return m_mpv->speed();
+}
+
+bool PlaybackSession::paused() const
+{
+    return m_mpv->isPaused();
 }
 
 double PlaybackSession::volume() const
@@ -314,6 +323,17 @@ void PlaybackSession::onMpvPosition(double positionInFile)
     m_globalPosition = global;
     emit positionChanged(global);
     updateChapterForPosition(global);
+
+    // End-of-chapter sleep: position reports arrive a fraction of a second apart,
+    // so this lands just past the boundary. Step back onto it so resuming starts
+    // the next chapter from its first word.
+    if (m_sleepAtChapterEnd && global >= m_sleepChapterEnd - 0.05) {
+        const double boundary = m_sleepChapterEnd;
+        clearSleepTimer();
+        pause();
+        if (boundary < m_duration)
+            seekGlobal(boundary);
+    }
 }
 
 void PlaybackSession::onEndOfFile()
@@ -359,10 +379,12 @@ void PlaybackSession::onPlayingChanged(bool playing)
     // correctly excluded here.
     if (m_active) {
         m_listen->setPlaying(playing);
-        if (playing)
+        if (playing) {
             m_syncTimer.start();
-        else {
+            resumeSleepCountdown();
+        } else {
             m_syncTimer.stop();
+            holdSleepCountdown();
             sync(QStringLiteral("pause"));
         }
     }
@@ -390,7 +412,9 @@ void PlaybackSession::updateChapterForPosition(double globalSeconds)
 void PlaybackSession::togglePlayPause()
 {
     if (!m_active) return;
-    if (m_playing) pause(); else play();
+    // Toggle the requested state, not the audible one: while a stream is stalled
+    // buffering it is not "playing", yet Pause must still pause it.
+    if (m_mpv->isPaused()) play(); else pause();
 }
 
 void PlaybackSession::play()  { if (m_active) m_mpv->play(); }
@@ -407,10 +431,16 @@ void PlaybackSession::seekGlobal(double seconds)
         const Track &t = m_tracks.at(m_currentTrack);
         m_mpv->seekAbsolute(m_isHls ? seconds : (seconds - t.startOffset));
     } else {
-        loadTrackForGlobal(seconds, m_playing);
+        // Keep playing if the user was: m_playing also reads false between files
+        // and while buffering, which left a quick second chapter skip paused.
+        loadTrackForGlobal(seconds, !m_mpv->isPaused());
     }
     m_globalPosition = seconds;
     emit positionChanged(seconds);
+    emit seeked(seconds);
+    // "End of chapter" means the chapter being listened to, so follow a jump.
+    if (m_sleepAtChapterEnd)
+        m_sleepChapterEnd = chapterEndFor(seconds);
     scheduleSync();
 }
 
@@ -422,23 +452,59 @@ void PlaybackSession::skip(double deltaSeconds)
 void PlaybackSession::nextChapter()
 {
     if (!m_active) return;
-    if (m_chapterIndex + 1 < m_chapters.size())
-        seekGlobal(m_chapters.at(m_chapterIndex + 1).toObject()
-                       .value(QStringLiteral("start")).toDouble());
+    if (m_chapters.isEmpty()) {
+        skip(fallbackSkipSeconds());
+        return;
+    }
+    // The first chapter starting after the position, found by start time rather
+    // than index + 1: past the last chapter's end the index is -1, which sent Next
+    // back to the first chapter. The margin keeps a position reported a hair before
+    // a chapter just jumped to from targeting that same chapter again.
+    double target = -1.0;
+    for (const auto &cv : m_chapters) {
+        const double start = cv.toObject().value(QStringLiteral("start")).toDouble();
+        if (start > m_globalPosition + 0.5 && (target < 0.0 || start < target))
+            target = start;
+    }
+    if (target >= 0.0)
+        seekGlobal(target);
 }
 
 void PlaybackSession::previousChapter()
 {
     if (!m_active) return;
+    // Without chapters this used to seek to 0, so the Previous media key threw away
+    // the listening position on any chapterless book.
+    if (m_chapters.isEmpty()) {
+        skip(-fallbackSkipSeconds());
+        return;
+    }
+    // The start of the chapter being heard, and of the one before it.
+    double current = 0.0;
+    for (const auto &cv : m_chapters) {
+        const double start = cv.toObject().value(QStringLiteral("start")).toDouble();
+        if (start <= m_globalPosition + 0.5)
+            current = qMax(current, start);
+    }
+    double previous = -1.0;
+    for (const auto &cv : m_chapters) {
+        const double start = cv.toObject().value(QStringLiteral("start")).toDouble();
+        if (start < current)
+            previous = qMax(previous, start);
+    }
     // If more than 3s into the chapter, restart it; otherwise go to the previous.
-    const double chapStart = (m_chapterIndex >= 0 && m_chapterIndex < m_chapters.size())
-        ? m_chapters.at(m_chapterIndex).toObject().value(QStringLiteral("start")).toDouble()
-        : 0.0;
-    if (m_globalPosition - chapStart > 3.0 || m_chapterIndex <= 0)
-        seekGlobal(chapStart);
+    if (m_globalPosition - current > 3.0 || previous < 0.0)
+        seekGlobal(current);
     else
-        seekGlobal(m_chapters.at(m_chapterIndex - 1).toObject()
-                       .value(QStringLiteral("start")).toDouble());
+        seekGlobal(previous);
+}
+
+double PlaybackSession::fallbackSkipSeconds() const
+{
+    const int seconds = Database::instance()
+                            .getSetting(QStringLiteral("skipSeconds"), QStringLiteral("30"))
+                            .toInt();
+    return seconds > 0 ? seconds : 30;
 }
 
 void PlaybackSession::setSpeed(double speed)
@@ -453,25 +519,107 @@ void PlaybackSession::setVolume(double volume)
     emit volumeChanged();
 }
 
+int PlaybackSession::sleepRemaining() const
+{
+    const qint64 ms = m_sleepTimer.isActive() ? m_sleepTimer.remainingTime()
+                                              : m_sleepRemainingMs;
+    return static_cast<int>((qMax<qint64>(0, ms) + 999) / 1000); // round up
+}
+
 void PlaybackSession::setSleepTimer(int minutes)
 {
+    clearSleepTimer();
+    // Only meaningful for an open session; flushAndClose() clears it again, so one
+    // set with nothing playing would otherwise leak into the next book.
+    if (!m_active)
+        return;
     m_sleepMinutes = qMax(0, minutes);
-    if (m_sleepMinutes > 0)
-        m_sleepTimer.start(m_sleepMinutes * 60 * 1000);
-    else
-        m_sleepTimer.stop();
+    m_sleepRemainingMs = qint64(m_sleepMinutes) * 60 * 1000;
+    // Counts only audible time: started now if playing, else on the next play.
+    if (m_playing)
+        resumeSleepCountdown();
     emit sleepTimerChanged();
+    emit sleepRemainingChanged();
+}
+
+void PlaybackSession::setSleepAtChapterEnd()
+{
+    clearSleepTimer();
+    if (m_active && !m_chapters.isEmpty()) {
+        m_sleepAtChapterEnd = true;
+        m_sleepChapterEnd = chapterEndFor(m_globalPosition);
+    }
+    emit sleepTimerChanged();
+    emit sleepRemainingChanged();
 }
 
 void PlaybackSession::cycleSleepTimer()
 {
-    // off -> 15 -> 30 -> 60 -> off
+    // off -> 15 -> 30 -> 60 -> end of chapter (when there are chapters) -> off
+    if (m_sleepAtChapterEnd) {
+        setSleepTimer(0);
+        return;
+    }
     switch (m_sleepMinutes) {
     case 0:  setSleepTimer(15); break;
     case 15: setSleepTimer(30); break;
     case 30: setSleepTimer(60); break;
-    default: setSleepTimer(0);  break;
+    default:
+        if (m_chapters.isEmpty())
+            setSleepTimer(0);
+        else
+            setSleepAtChapterEnd();
+        break;
     }
+}
+
+void PlaybackSession::holdSleepCountdown()
+{
+    if (!m_sleepTimer.isActive())
+        return;
+    m_sleepRemainingMs = qMax<qint64>(0, m_sleepTimer.remainingTime());
+    m_sleepTimer.stop();
+    m_sleepTick.stop();
+    emit sleepRemainingChanged();
+}
+
+void PlaybackSession::resumeSleepCountdown()
+{
+    if (m_sleepMinutes <= 0 || m_sleepTimer.isActive())
+        return;
+    m_sleepTimer.start(static_cast<int>(qMax<qint64>(1, m_sleepRemainingMs)));
+    m_sleepTick.start();
+}
+
+bool PlaybackSession::clearSleepTimer()
+{
+    const bool wasSet = m_sleepMinutes != 0 || m_sleepAtChapterEnd || m_sleepTimer.isActive();
+    m_sleepTimer.stop();
+    m_sleepTick.stop();
+    m_sleepMinutes = 0;
+    m_sleepRemainingMs = 0;
+    m_sleepAtChapterEnd = false;
+    m_sleepChapterEnd = 0.0;
+    if (wasSet) {
+        emit sleepTimerChanged();
+        emit sleepRemainingChanged();
+    }
+    return wasSet;
+}
+
+double PlaybackSession::chapterEndFor(double globalSeconds) const
+{
+    double nextStart = m_duration;
+    for (const auto &cv : m_chapters) {
+        const QJsonObject c = cv.toObject();
+        const double start = c.value(QStringLiteral("start")).toDouble();
+        const double end = c.value(QStringLiteral("end")).toDouble();
+        if (globalSeconds >= start && globalSeconds < end)
+            return end;
+        if (start > globalSeconds)
+            nextStart = qMin(nextStart, start);
+    }
+    return nextStart;
 }
 
 void PlaybackSession::scheduleSync()
@@ -523,11 +671,7 @@ void PlaybackSession::flushAndClose(bool blocking)
         return;
     // A closing session has nothing left to pause; drop any pending sleep timer so
     // it can't fire into the next session.
-    if (m_sleepTimer.isActive() || m_sleepMinutes != 0) {
-        m_sleepTimer.stop();
-        m_sleepMinutes = 0;
-        emit sleepTimerChanged();
-    }
+    clearSleepTimer();
     m_syncTimer.stop();
     m_seekSyncTimer.stop(); // the final sync below carries the latest position
     m_listen->setPlaying(false);

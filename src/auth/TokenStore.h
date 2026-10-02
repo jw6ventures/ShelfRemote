@@ -6,8 +6,9 @@
 #include <functional>
 #include <vector>
 
+#include "storage/SecureStore.h"
+
 class ApiClient;
-class SecureStore;
 
 // Holds the Audiobookshelf access + refresh tokens for the active server,
 // persists them encrypted, decodes the JWT expiry for proactive refresh, and
@@ -44,8 +45,16 @@ public:
     bool load();
     void persist() const;
 
+    // Where saved sign-ins are kept (see SecureStore::setStorage). The tokens in
+    // use right now are re-saved afterwards, so the current session survives even
+    // a switch that had to start a new key.
+    SecureStore::Storage storage() const;
+    SecureStore::SwitchResult setStorage(SecureStore::Storage target);
+
     // Performs POST /auth/refresh. On success updates + persists tokens and calls
-    // cb(true). On failure cb(false); the caller should route the user to login.
+    // cb(true). On failure cb(false); refreshFailed() (route the user to login) is
+    // emitted only when the server rejected the refresh token, not for a transport
+    // error or server fault, which leave the tokens in place for the next attempt.
     void refresh(std::function<void(bool)> cb);
 
     // Parses the "exp" claim from a JWT without verifying the signature (the
@@ -55,10 +64,14 @@ public:
 signals:
     void tokensChanged();
     void refreshFailed();
-    // Persisted tokens exist for this server but could not be unlocked (a legacy
-    // blob, an AAD/context mismatch, or the sticky secret provider was unavailable).
-    // The caller should route the user to a one-time re-login.
+    // Persisted tokens exist for this server but can never be unlocked (a legacy
+    // blob or an AAD/context mismatch); they have been purged. The caller should
+    // route the user to a one-time re-login.
     void secretsUnreadable();
+    // Persisted tokens exist but the secret provider (the system keyring, via the
+    // Secret portal) could not be reached just now. Nothing is lost: the same
+    // load() can succeed once the keyring is up or unlocked.
+    void secretsUnavailable();
 
 private:
     ApiClient   *m_api;

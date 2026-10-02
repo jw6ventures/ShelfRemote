@@ -101,6 +101,13 @@ void Database::removeSecret(const QString &key)
     execOrWarn(q, "removeSecret");
 }
 
+void Database::removeAllSecrets()
+{
+    QSqlQuery q(QSqlDatabase::database(m_connName));
+    q.prepare(QStringLiteral("DELETE FROM secrets"));
+    execOrWarn(q, "removeAllSecrets");
+}
+
 void Database::putSetting(const QString &key, const QString &value)
 {
     QSqlQuery q(QSqlDatabase::database(m_connName));

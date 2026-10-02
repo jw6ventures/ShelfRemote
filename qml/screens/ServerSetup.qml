@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import QtQuick.Window
 import ShelfRemote
 
 // Server connection + login. Drives Auth.checkServer, then shows local and/or
@@ -12,6 +13,49 @@ FocusScope {
     Component.onCompleted: {
         urlField.forceActiveFocus();
         Servers.reload();
+    }
+
+    // Up/Down walk every visible, enabled control top to bottom, the saved
+    // servers included. Pairwise KeyNavigation only ever pointed down, so once off
+    // the URL field a remote could not get back to it, and nothing led past "Sign
+    // in" to the OIDC button, Cancel, or the saved servers.
+    function focusChain() {
+        var items = [urlField, connectBtn, usernameField, passwordField, loginBtn,
+                     oidcBtn, cancelBtn];
+        for (var i = 0; i < savedRepeater.count; ++i)
+            items[items.length] = savedRepeater.itemAt(i);
+        return items.filter(function(it) { return it && it.visible && it.enabled; });
+    }
+    function moveFocus(step) {
+        var chain = focusChain();
+        var i = chain.indexOf(root.Window.activeFocusItem);
+        var next = i < 0 ? 0 : i + step;
+        if (next < 0 || next >= chain.length)
+            return false;
+        chain[next].forceActiveFocus();
+        return true;
+    }
+    Keys.onUpPressed: function(event) { event.accepted = root.moveFocus(-1); }
+    Keys.onDownPressed: function(event) { event.accepted = root.moveFocus(1); }
+
+    // Connect disables itself while busy, and Cancel / the login fields come and
+    // go, so the focused control can vanish under the user. Land somewhere useful
+    // instead of on nothing: Cancel while busy, else the first login option.
+    function recoverFocus() {
+        if (focusChain().indexOf(root.Window.activeFocusItem) >= 0)
+            return;
+        var preferred = Auth.isBusy ? [cancelBtn] : [usernameField, oidcBtn, connectBtn, urlField];
+        for (var i = 0; i < preferred.length; ++i) {
+            if (preferred[i].visible && preferred[i].enabled) {
+                preferred[i].forceActiveFocus();
+                return;
+            }
+        }
+    }
+    Connections {
+        target: Auth
+        function onStateChanged() { Qt.callLater(root.recoverFocus); }
+        function onAuthMethodsChanged() { Qt.callLater(root.recoverFocus); }
     }
 
     ColumnLayout {
@@ -47,7 +91,6 @@ FocusScope {
                 border.width: urlField.activeFocus ? Theme.focusBorder : 0
                 border.color: Theme.focusRing
             }
-            KeyNavigation.down: connectBtn
             onAccepted: connectBtn.clicked()
         }
 
@@ -56,7 +99,6 @@ FocusScope {
             text: Auth.isBusy ? "Connecting…" : "Connect"
             enabled: !Auth.isBusy
             Layout.fillWidth: true
-            KeyNavigation.down: localFields.visible ? usernameField : oidcBtn
             onClicked: Auth.checkServer(urlField.text)
         }
 
@@ -78,7 +120,6 @@ FocusScope {
                     border.width: usernameField.activeFocus ? Theme.focusBorder : 0
                     border.color: Theme.focusRing
                 }
-                KeyNavigation.down: passwordField
             }
             TextField {
                 id: passwordField
@@ -92,7 +133,6 @@ FocusScope {
                     border.width: passwordField.activeFocus ? Theme.focusBorder : 0
                     border.color: Theme.focusRing
                 }
-                KeyNavigation.down: loginBtn
                 onAccepted: loginBtn.clicked()
             }
             FocusButton {
@@ -116,10 +156,23 @@ FocusScope {
         // Escape hatch out of a stuck/abandoned attempt (e.g. the OIDC browser
         // handoff) instead of waiting for the timeout.
         FocusButton {
+            id: cancelBtn
             visible: Auth.isBusy
             text: "Cancel"
             Layout.fillWidth: true
             onClicked: Auth.cancelAuth()
+        }
+
+        Text {
+            // Progress that isn't an error, such as waiting for the keyring to
+            // come up after boot before the saved sign-in can be read.
+            visible: Auth.notice !== ""
+            text: Auth.notice
+            color: Theme.textMuted
+            font.pixelSize: Theme.fontSmall
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignHCenter
         }
 
         Text {
@@ -151,12 +204,17 @@ FocusScope {
         Row {
             spacing: Theme.spacing
             Repeater {
+                id: savedRepeater
                 model: Servers
                 delegate: FocusButton {
+                    required property int index
                     required property string serverId
                     required property string name
                     required property string baseUrl
                     text: name
+                    KeyNavigation.left: index > 0 ? savedRepeater.itemAt(index - 1) : null
+                    KeyNavigation.right: index < savedRepeater.count - 1
+                                         ? savedRepeater.itemAt(index + 1) : null
                     // Try to restore this server's stored session first; only fall
                     // back to a fresh discovery/login if there are no valid tokens.
                     onClicked: {

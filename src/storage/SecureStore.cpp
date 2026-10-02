@@ -168,21 +168,97 @@ QByteArray SecureStore::acquireLocalSecret()
         qWarning() << "SecureStore: RAND_bytes failed generating master key";
         return {};
     }
-    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        f.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
-        f.write(secret);
-        f.close();
-    } else {
-        qWarning() << "SecureStore: could not persist master key to" << path;
-    }
+    writeLocalSecret(secret);
     return secret;
+}
+
+bool SecureStore::writeLocalSecret(const QByteArray &secret)
+{
+    const QString path = localSecretPath();
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        qWarning() << "SecureStore: could not persist master key to" << path;
+        return false;
+    }
+    f.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    const bool ok = f.write(secret) == secret.size();
+    f.close();
+    if (!ok) {
+        qWarning() << "SecureStore: could not write master key to" << path;
+        f.remove();
+    }
+    return ok;
+}
+
+SecureStore::Storage SecureStore::storage() const
+{
+    return Database::instance().getSetting(QStringLiteral("secretProvider"))
+                   == QLatin1String("portal-v1")
+               ? Storage::Keyring
+               : Storage::Device;
+}
+
+SecureStore::SwitchResult SecureStore::setStorage(Storage target)
+{
+    if (target == storage())
+        return SwitchResult::Unchanged;
+
+    if (target == Storage::Device) {
+        // Carry the keyring's secret over as-is, so every saved secret still opens.
+        // This asks the portal, which may prompt to unlock the keyring.
+        QByteArray secret = masterSecret();
+        const bool carried = !secret.isEmpty();
+        if (!carried) {
+            secret = QByteArray(kKeyLen, Qt::Uninitialized);
+            if (RAND_bytes(reinterpret_cast<unsigned char *>(secret.data()), kKeyLen) != 1) {
+                qWarning() << "SecureStore: RAND_bytes failed generating master key";
+                return SwitchResult::Failed;
+            }
+        }
+        if (!writeLocalSecret(secret))
+            return SwitchResult::Failed;
+        Database::instance().putSetting(QStringLiteral("secretProvider"),
+                                        QStringLiteral("local-v1"));
+        m_provider = Provider::Local;
+        m_master = secret;
+        if (!carried) {
+            // Locked away in a keyring we can't reach; under the new key they would
+            // only ever read as corrupt.
+            qWarning() << "SecureStore: keyring unavailable while moving to this device;"
+                          " starting a new key";
+            Database::instance().removeAllSecrets();
+            return SwitchResult::Reset;
+        }
+        qInfo() << "SecureStore: sign-in storage moved to this device";
+        return SwitchResult::Moved;
+    }
+
+    const QByteArray portal = acquirePortalSecret();
+    if (portal.isEmpty())
+        return SwitchResult::Failed;
+    const QByteArray previous = masterSecret();
+    Database::instance().putSetting(QStringLiteral("secretProvider"),
+                                    QStringLiteral("portal-v1"));
+    m_provider = Provider::Portal;
+    m_master = portal;
+    // The point of the keyring is not having the key on disk.
+    QFile::remove(localSecretPath());
+    if (previous != portal) {
+        Database::instance().removeAllSecrets();
+        qInfo() << "SecureStore: sign-in storage moved to the keyring with a new key";
+        return SwitchResult::Reset;
+    }
+    qInfo() << "SecureStore: sign-in storage moved to the keyring";
+    return SwitchResult::Moved;
 }
 
 QByteArray SecureStore::acquirePortalSecret()
 {
     QDBusConnection bus = QDBusConnection::sessionBus();
-    if (!bus.isConnected())
+    if (!bus.isConnected()) {
+        qWarning() << "SecureStore: no session bus; the Secret portal is unreachable";
         return {};
+    }
 
     // The portal writes the secret to the write end of this pipe and closes it.
     int fds[2];

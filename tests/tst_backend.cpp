@@ -149,6 +149,38 @@ private slots:
         // ...and the user is told, rather than the stale copy passing as current.
         QCOMPARE(errors.count(), 1);
     }
+
+    // With nothing cached either, the details screen needs to know to stop
+    // waiting rather than sit on a half-built page.
+    void anUncachedItemThatCannotLoadIsReported()
+    {
+        FakeServer server;
+        server.failEverything = true;
+        QVERIFY(server.start());
+
+        ApiClient api;
+        api.setBaseUrl(server.baseUrl());
+        Backend backend(&api);
+
+        QSignalSpy loaded(&backend, &Backend::itemLoaded);
+        QSignalSpy failed(&backend, &Backend::itemLoadFailed);
+        backend.loadItem(QStringLiteral("never-cached"));
+        QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 5000);
+        QCOMPARE(failed.at(0).at(0).toString(), QStringLiteral("never-cached"));
+        QCOMPARE(loaded.count(), 0);
+    }
+
+    // A search that cannot run still settles, so the screen never shows
+    // "Searching…" forever.
+    void aSearchWithNoLibrarySettles()
+    {
+        ApiClient api;
+        Backend backend(&api);
+        QSignalSpy finished(&backend, &Backend::searchFinished);
+        backend.search(QStringLiteral("dune"));
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished.at(0).at(1).toBool(), false);
+    }
 };
 
 QTEST_GUILESS_MAIN(TstBackend)

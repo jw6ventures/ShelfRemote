@@ -12,7 +12,8 @@ ShelfRemote is an unofficial Audiobookshelf client and not affiliated with Audio
 - Home shelves, playlists, library grid with sort, on-screen-keyboard search,
   item details
 - Streaming playback via libmpv: multi-file direct play **and** HLS transcode,
-  global-timeline seeking, chapters, speed, sleep timer
+  global-timeline seeking, chapters with a chapter picker, speed, sleep timer
+  (minutes or end of chapter, counting only while listening)
 - Progress sync with correct wall-clock `timeListened` at any speed
 - MPRIS2 desktop/media-key control
 - Full keyboard/remote focus navigation
@@ -38,6 +39,15 @@ https://flathub.org/repo/flathub.flatpakrepo`.
 Prefer a one-off file? Every `v*` tag also attaches a single-file
 `ShelfRemote-<tag>.flatpak` bundle to the GitHub **Release**:
 `flatpak install --user ShelfRemote-v1.2.3.flatpak`.
+
+### Auto-login TVs and the keyring
+
+Under Flatpak, saved sign-ins are protected by the system keyring by default. A
+machine that logs in automatically often leaves the keyring locked, so ShelfRemote
+asks you to sign in again after a reboot. Set **Settings › Saved sign-in** to
+**This device** to keep them encrypted with a key in ShelfRemote's own data folder
+instead. That no longer needs the keyring, but anyone who can use the computer
+account could read it.
 
 ## Roadmap
 - Offline downloads
