@@ -25,6 +25,8 @@ MpvController::MpvController(QObject *parent)
 MpvController::~MpvController()
 {
     if (m_mpv) {
+        // Stop mpv's thread from posting wakeups to an object mid-destruction.
+        mpv_set_wakeup_callback(m_mpv, nullptr, nullptr);
         mpv_terminate_destroy(m_mpv);
         m_mpv = nullptr;
     }
@@ -261,12 +263,16 @@ void MpvController::stop()  { command({QStringLiteral("stop")}); }
 
 void MpvController::seekAbsolute(double seconds)
 {
-    command({QStringLiteral("seek"), QString::number(seconds), QStringLiteral("absolute")});
+    // Fixed-point: the default six significant digits round to whole seconds past
+    // ~27.7 hours, which single-file audiobooks reach.
+    command({QStringLiteral("seek"), QString::number(seconds, 'f', 3),
+             QStringLiteral("absolute")});
 }
 
 void MpvController::seekRelative(double deltaSeconds)
 {
-    command({QStringLiteral("seek"), QString::number(deltaSeconds), QStringLiteral("relative")});
+    command({QStringLiteral("seek"), QString::number(deltaSeconds, 'f', 3),
+             QStringLiteral("relative")});
 }
 
 void MpvController::setSpeed(double speed)

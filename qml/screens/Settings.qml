@@ -7,7 +7,11 @@ import ShelfRemote
 FocusScope {
     id: root
     focus: true
+    signal requestSidebar()
     Component.onCompleted: firstBtn.forceActiveFocus()
+    // Every other top-level screen hands Left to the rail; here it went nowhere and
+    // only Esc got back out. Nothing on this screen uses Left itself.
+    Keys.onLeftPressed: root.requestSidebar()
 
     // ScrollArea rather than a bare Flickable: the rows run past the bottom of a
     // short screen, and moving focus down a plain Flickable does not scroll it —
@@ -67,7 +71,7 @@ FocusScope {
                     KeyNavigation.up: firstBtn
                     KeyNavigation.down: audioBtn
                     onClicked: {
-                        var next = AppSettings.defaultRate >= 2.0 ? 0.75 : AppSettings.defaultRate + 0.25;
+                        var next = AppSettings.nextRate(AppSettings.defaultRate);
                         AppSettings.defaultRate = next;   // persisted; applied to new sessions
                         Playback.setSpeed(next);          // and to the current one right now
                     }

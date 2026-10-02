@@ -146,11 +146,7 @@ FocusScope {
                     KeyNavigation.right: sleepBtn
                     KeyNavigation.up: transport.playButton
                     KeyNavigation.down: bmRep.count > 0 ? bmRep.itemAt(0) : null
-                    onClicked: {
-                        var next = Playback.speed + 0.25;
-                        if (next > 3.0) next = 0.75;
-                        Playback.setSpeed(next);
-                    }
+                    onClicked: Playback.setSpeed(AppSettings.nextRate(Playback.speed))
                 }
                 FocusButton {
                     id: sleepBtn

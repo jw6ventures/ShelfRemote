@@ -163,7 +163,9 @@ ApplicationWindow {
         onItemActivated: function(id) { contentRoot.openItem(id); }
         onRequestSidebar: sidebar.focusSidebar()
     } }
-    Component { id: settingsComp;   Settings {} }
+    Component { id: settingsComp;   Settings {
+        onRequestSidebar: sidebar.focusSidebar()
+    } }
     Component { id: detailsComp;    ItemDetails {} }
     Component { id: nowPlayingComp; NowPlaying {
         onRequestChapters: chapterPicker.open()
