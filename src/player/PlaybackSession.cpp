@@ -75,6 +75,7 @@ PlaybackSession::PlaybackSession(ApiClient *api, MpvController *mpv, QObject *pa
     connect(m_mpv, &MpvController::positionChanged, this, &PlaybackSession::onMpvPosition);
     connect(m_mpv, &MpvController::endOfFile, this, &PlaybackSession::onEndOfFile);
     connect(m_mpv, &MpvController::playingChanged, this, &PlaybackSession::onPlayingChanged);
+    connect(m_mpv, &MpvController::pausedChanged, this, &PlaybackSession::pausedChanged);
     connect(m_api, &ApiClient::accessTokenChanged, this, [this]() {
         if (m_active && m_currentPlaylistUsesAuth) {
             m_mpv->setHttpHeaders(QStringLiteral("Authorization: Bearer ") +
@@ -97,6 +98,11 @@ PlaybackSession::PlaybackSession(ApiClient *api, MpvController *mpv, QObject *pa
 double PlaybackSession::speed() const
 {
     return m_mpv->speed();
+}
+
+bool PlaybackSession::paused() const
+{
+    return m_mpv->isPaused();
 }
 
 double PlaybackSession::volume() const
@@ -406,7 +412,9 @@ void PlaybackSession::updateChapterForPosition(double globalSeconds)
 void PlaybackSession::togglePlayPause()
 {
     if (!m_active) return;
-    if (m_playing) pause(); else play();
+    // Toggle the requested state, not the audible one: while a stream is stalled
+    // buffering it is not "playing", yet Pause must still pause it.
+    if (m_mpv->isPaused()) play(); else pause();
 }
 
 void PlaybackSession::play()  { if (m_active) m_mpv->play(); }
@@ -423,10 +431,13 @@ void PlaybackSession::seekGlobal(double seconds)
         const Track &t = m_tracks.at(m_currentTrack);
         m_mpv->seekAbsolute(m_isHls ? seconds : (seconds - t.startOffset));
     } else {
-        loadTrackForGlobal(seconds, m_playing);
+        // Keep playing if the user was: m_playing also reads false between files
+        // and while buffering, which left a quick second chapter skip paused.
+        loadTrackForGlobal(seconds, !m_mpv->isPaused());
     }
     m_globalPosition = seconds;
     emit positionChanged(seconds);
+    emit seeked(seconds);
     // "End of chapter" means the chapter being listened to, so follow a jump.
     if (m_sleepAtChapterEnd)
         m_sleepChapterEnd = chapterEndFor(seconds);
@@ -441,23 +452,59 @@ void PlaybackSession::skip(double deltaSeconds)
 void PlaybackSession::nextChapter()
 {
     if (!m_active) return;
-    if (m_chapterIndex + 1 < m_chapters.size())
-        seekGlobal(m_chapters.at(m_chapterIndex + 1).toObject()
-                       .value(QStringLiteral("start")).toDouble());
+    if (m_chapters.isEmpty()) {
+        skip(fallbackSkipSeconds());
+        return;
+    }
+    // The first chapter starting after the position, found by start time rather
+    // than index + 1: past the last chapter's end the index is -1, which sent Next
+    // back to the first chapter. The margin keeps a position reported a hair before
+    // a chapter just jumped to from targeting that same chapter again.
+    double target = -1.0;
+    for (const auto &cv : m_chapters) {
+        const double start = cv.toObject().value(QStringLiteral("start")).toDouble();
+        if (start > m_globalPosition + 0.5 && (target < 0.0 || start < target))
+            target = start;
+    }
+    if (target >= 0.0)
+        seekGlobal(target);
 }
 
 void PlaybackSession::previousChapter()
 {
     if (!m_active) return;
+    // Without chapters this used to seek to 0, so the Previous media key threw away
+    // the listening position on any chapterless book.
+    if (m_chapters.isEmpty()) {
+        skip(-fallbackSkipSeconds());
+        return;
+    }
+    // The start of the chapter being heard, and of the one before it.
+    double current = 0.0;
+    for (const auto &cv : m_chapters) {
+        const double start = cv.toObject().value(QStringLiteral("start")).toDouble();
+        if (start <= m_globalPosition + 0.5)
+            current = qMax(current, start);
+    }
+    double previous = -1.0;
+    for (const auto &cv : m_chapters) {
+        const double start = cv.toObject().value(QStringLiteral("start")).toDouble();
+        if (start < current)
+            previous = qMax(previous, start);
+    }
     // If more than 3s into the chapter, restart it; otherwise go to the previous.
-    const double chapStart = (m_chapterIndex >= 0 && m_chapterIndex < m_chapters.size())
-        ? m_chapters.at(m_chapterIndex).toObject().value(QStringLiteral("start")).toDouble()
-        : 0.0;
-    if (m_globalPosition - chapStart > 3.0 || m_chapterIndex <= 0)
-        seekGlobal(chapStart);
+    if (m_globalPosition - current > 3.0 || previous < 0.0)
+        seekGlobal(current);
     else
-        seekGlobal(m_chapters.at(m_chapterIndex - 1).toObject()
-                       .value(QStringLiteral("start")).toDouble());
+        seekGlobal(previous);
+}
+
+double PlaybackSession::fallbackSkipSeconds() const
+{
+    const int seconds = Database::instance()
+                            .getSetting(QStringLiteral("skipSeconds"), QStringLiteral("30"))
+                            .toInt();
+    return seconds > 0 ? seconds : 30;
 }
 
 void PlaybackSession::setSpeed(double speed)

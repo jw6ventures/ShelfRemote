@@ -4,6 +4,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -25,6 +26,7 @@ public:
     int syncCount = 0;
     int closeCount = 0;
     double lastSyncedTime = 0.0;
+    bool withChapters = true;
 
     bool start()
     {
@@ -79,6 +81,8 @@ private:
         QJsonObject payload;
         if (requestLine.contains("/play")) {
             payload = playSession();
+            if (!withChapters)
+                payload.remove(QStringLiteral("chapters"));
         } else if (requestLine.contains("/sync")) {
             ++syncCount;
             lastSyncedTime = QJsonDocument::fromJson(body)
@@ -314,6 +318,82 @@ private slots:
         emit mpv.positionChanged(1400.2 - 1000.0);
         QVERIFY(!session.sleepAtChapterEnd());
         QCOMPARE(session.position(), 1400.0);
+    }
+
+    // Chapters are found by start time. Next from just after a chapter start (as a
+    // position report after a jump often is) must move on, not repeat it.
+    void chapterStepsFollowStartTimes()
+    {
+        FakeServer server;
+        QVERIFY(server.start());
+        ApiClient api;
+        api.setBaseUrl(server.baseUrl());
+        MpvController mpv;
+        PlaybackSession session(&api, &mpv);
+
+        session.playItem(QStringLiteral("item-1"));
+        QTRY_VERIFY_WITH_TIMEOUT(session.active(), 3000);
+
+        session.seekGlobal(100.0);
+        session.nextChapter();
+        QCOMPARE(session.position(), 600.0);
+        session.seekGlobal(600.2);
+        session.nextChapter();
+        QCOMPARE(session.position(), 1400.0);
+        session.nextChapter(); // already in the last chapter: stays put
+        QCOMPARE(session.position(), 1400.0);
+
+        // Well into a chapter, Previous restarts it; near its start, it goes back.
+        session.seekGlobal(1410.0);
+        session.previousChapter();
+        QCOMPARE(session.position(), 1400.0);
+        session.previousChapter();
+        QCOMPARE(session.position(), 600.0);
+    }
+
+    // On a book without chapters, Previous used to seek to 0 — a stray press of
+    // the media key lost the listening position. Both directions skip instead.
+    void chapterlessBooksSkipInsteadOfRewinding()
+    {
+        FakeServer server;
+        server.withChapters = false;
+        QVERIFY(server.start());
+        ApiClient api;
+        api.setBaseUrl(server.baseUrl());
+        MpvController mpv;
+        PlaybackSession session(&api, &mpv);
+
+        session.playItem(QStringLiteral("item-1"));
+        QTRY_VERIFY_WITH_TIMEOUT(session.active(), 3000);
+
+        session.seekGlobal(500.0);
+        session.previousChapter();
+        QVERIFY(session.position() > 0.0);
+        QVERIFY(session.position() < 500.0);
+        const double back = session.position();
+        session.nextChapter();
+        QCOMPARE(session.position(), 500.0);
+        QVERIFY(back < 500.0);
+    }
+
+    // MPRIS relays this as Seeked, so controllers hear about in-app jumps too.
+    void everyJumpIsAnnounced()
+    {
+        FakeServer server;
+        QVERIFY(server.start());
+        ApiClient api;
+        api.setBaseUrl(server.baseUrl());
+        MpvController mpv;
+        PlaybackSession session(&api, &mpv);
+
+        session.playItem(QStringLiteral("item-1"));
+        QTRY_VERIFY_WITH_TIMEOUT(session.active(), 3000);
+
+        QSignalSpy spy(&session, &PlaybackSession::seeked);
+        session.skip(30.0);
+        session.nextChapter();
+        QCOMPARE(spy.count(), 2);
+        QCOMPARE(spy.at(1).at(0).toDouble(), 600.0);
     }
 };
 

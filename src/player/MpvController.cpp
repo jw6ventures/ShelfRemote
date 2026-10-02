@@ -100,7 +100,11 @@ void MpvController::handleEvents()
                 m_duration = *static_cast<double *>(prop->data);
                 emit durationChanged(m_duration);
             } else if (ev->reply_userdata == kPause && prop->format == MPV_FORMAT_FLAG) {
-                m_paused = *static_cast<int *>(prop->data) != 0;
+                const bool paused = *static_cast<int *>(prop->data) != 0;
+                if (paused != m_paused) {
+                    m_paused = paused;
+                    emit pausedChanged(m_paused);
+                }
                 updatePlaying();
             } else if (ev->reply_userdata == kCoreIdle && prop->format == MPV_FORMAT_FLAG) {
                 m_coreIdle = *static_cast<int *>(prop->data) != 0;

@@ -179,7 +179,7 @@ FocusScope {
                         // The play state glyph is bound here rather than baked into
                         // `entries`, so a pause doesn't rebuild the model under the cursor.
                         text: modelData.name === "nowplaying"
-                              ? (Playback.playing ? "▶  " : "⏸  ") + modelData.label
+                              ? (Playback.paused ? "⏸  " : "▶  ") + modelData.label
                               : modelData.label
                         font.pixelSize: Theme.fontBody
                         elide: Text.ElideRight

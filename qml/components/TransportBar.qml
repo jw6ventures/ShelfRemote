@@ -68,7 +68,9 @@ Column {
         FocusButton {
             id: playBtn
             focus: true
-            text: Playback.playing ? "⏸ Pause" : "▶ Play"
+            // The requested state, so the button doesn't flip to "Play" while a
+            // playing stream buffers.
+            text: Playback.paused ? "▶ Play" : "⏸ Pause"
             KeyNavigation.left: back30; KeyNavigation.right: fwd30; KeyNavigation.down: transport.navDown
             onClicked: Playback.togglePlayPause()
         }

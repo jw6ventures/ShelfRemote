@@ -23,6 +23,10 @@ class PlaybackSession : public QObject
     Q_OBJECT
     Q_PROPERTY(bool active READ active NOTIFY activeChanged)
     Q_PROPERTY(bool playing READ playing NOTIFY playingChanged)
+    // What the user asked for. Unlike `playing`, this stays false while a playing
+    // stream stalls to buffer or moves between files, so it is what Play/Pause
+    // controls should reflect and toggle.
+    Q_PROPERTY(bool paused READ paused NOTIFY pausedChanged)
     Q_PROPERTY(QString title READ title NOTIFY metadataChanged)
     Q_PROPERTY(QString author READ author NOTIFY metadataChanged)
     Q_PROPERTY(QString itemId READ itemId NOTIFY metadataChanged)
@@ -45,6 +49,7 @@ public:
 
     bool active() const { return m_active; }
     bool playing() const { return m_playing; }
+    bool paused() const;
     QString title() const { return m_title; }
     QString author() const { return m_author; }
     QString itemId() const { return m_itemId; }
@@ -95,6 +100,10 @@ public:
 signals:
     void activeChanged();
     void playingChanged(bool playing);
+    void pausedChanged();
+    // The position jumped (skip, chapter, bookmark, or any explicit seek), as
+    // opposed to advancing through playback. Feeds MPRIS's Seeked signal.
+    void seeked(double position);
     void metadataChanged();
     void positionChanged(double position);
     void speedChanged();
@@ -126,6 +135,9 @@ private:
     // Where "end of chapter" falls for a given position: the end of the chapter
     // containing it, else the start of the next chapter, else the end of the book.
     double chapterEndFor(double globalSeconds) const;
+    // Previous/Next fall back to a skip of the user's interval when the book has
+    // no chapters to move between.
+    double fallbackSkipSeconds() const;
 
     struct Track {
         int index = 0;
