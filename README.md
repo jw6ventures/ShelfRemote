@@ -12,7 +12,8 @@ ShelfRemote is an unofficial Audiobookshelf client and not affiliated with Audio
 - Home shelves, playlists, library grid with sort, on-screen-keyboard search,
   item details
 - Streaming playback via libmpv: multi-file direct play **and** HLS transcode,
-  global-timeline seeking, chapters, speed, sleep timer
+  global-timeline seeking, chapters with a chapter picker, speed, sleep timer
+  (minutes or end of chapter, counting only while listening)
 - Progress sync with correct wall-clock `timeListened` at any speed
 - MPRIS2 desktop/media-key control
 - Full keyboard/remote focus navigation
