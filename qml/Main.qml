@@ -64,6 +64,9 @@ ApplicationWindow {
                 onEnterContent: if (stack.currentItem) stack.currentItem.forceActiveFocus()
                 onOpenLibraryPicker: libraryPicker.open()
                 onNavigate: function(name) {
+                    // Not a section: open the player over whatever is showing, so
+                    // Back returns there.
+                    if (name === "nowplaying") { contentRoot.openNowPlaying(); return; }
                     sidebar.currentName = name;
                     stack.clear();
                     switch (name) {
@@ -90,7 +93,10 @@ ApplicationWindow {
             stack.forceActiveFocus();
         }
         function openNowPlaying() {
-            stack.push(nowPlayingComp);
+            // Already showing (re-selected from the rail): just hand it focus
+            // rather than stacking a second copy.
+            if (!(stack.currentItem && stack.currentItem.objectName === "nowPlaying"))
+                stack.push(nowPlayingComp);
             stack.forceActiveFocus();
         }
         // Route a Home shelf card by its entity kind. Only books/podcasts have an
@@ -112,7 +118,17 @@ ApplicationWindow {
 
         Connections {
             target: Playback
-            function onActiveChanged() { if (Playback.active) contentRoot.openNowPlaying(); }
+            function onActiveChanged() {
+                if (Playback.active) {
+                    contentRoot.openNowPlaying();
+                } else if (stack.currentItem && stack.currentItem.objectName === "nowPlaying") {
+                    // The session ended (stop, end of book, logout): don't strand
+                    // the user on a dead player. Handled here rather than in the
+                    // screen, which has no StackView attached type in scope.
+                    if (stack.depth > 1) stack.pop();
+                    else sidebar.navigate("home");
+                }
+            }
         }
         Connections {
             target: Backend

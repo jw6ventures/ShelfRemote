@@ -5,6 +5,8 @@ import ShelfRemote
 FocusScope {
     id: root
     focus: true
+    // Lets the shell recognise this screen on top of the stack.
+    objectName: "nowPlaying"
 
     property string coverUrl: ""
     function refreshCover() { coverUrl = Covers.localUrl(Playback.itemId, 400, 640); }
@@ -37,16 +39,6 @@ FocusScope {
     Connections {
         target: Covers
         function onCoverReady(id, url) { if (id === Playback.itemId) root.coverUrl = url; }
-    }
-    // When the session ends (stop, end of book, logout), don't strand the user on a
-    // dead Now Playing screen — pop back, but only if we're still the top screen.
-    Connections {
-        target: Playback
-        function onActiveChanged() {
-            if (!Playback.active && root.StackView.view
-                    && root.StackView.view.currentItem === root)
-                root.StackView.view.pop();
-        }
     }
 
     // The cover, transport, buttons and bookmark list add up to more than a 720p
