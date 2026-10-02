@@ -116,8 +116,9 @@ FocusScope {
                     id: sleepBtn
                     // The countdown itself lives in Playback (survives leaving this
                     // screen); this button only reflects and cycles it.
-                    text: Playback.sleepMinutes > 0 ? ("Sleep: " + Playback.sleepMinutes + "m")
-                                                    : "Sleep timer"
+                    text: Playback.sleepAtChapterEnd ? "Sleep: end of chapter"
+                          : Playback.sleepMinutes > 0 ? ("Sleep: " + root.fmtTime(Playback.sleepRemaining))
+                          : "Sleep timer"
                     KeyNavigation.left: speedBtn
                     KeyNavigation.right: bookmarkBtn
                     KeyNavigation.up: transport.playButton

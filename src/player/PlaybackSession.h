@@ -34,6 +34,11 @@ class PlaybackSession : public QObject
     // Sleep timer lives here (not in the Now Playing screen) so navigating away
     // from that screen does not cancel a running countdown. 0 == off.
     Q_PROPERTY(int sleepMinutes READ sleepMinutes NOTIFY sleepTimerChanged)
+    // Whole seconds left on a minutes-based sleep timer (0 when off). The countdown
+    // only runs while audio is actually playing.
+    Q_PROPERTY(int sleepRemaining READ sleepRemaining NOTIFY sleepRemainingChanged)
+    // True while the sleep timer is set to pause at the end of the current chapter.
+    Q_PROPERTY(bool sleepAtChapterEnd READ sleepAtChapterEnd NOTIFY sleepTimerChanged)
 
 public:
     PlaybackSession(ApiClient *api, MpvController *mpv, QObject *parent = nullptr);
@@ -56,6 +61,8 @@ public:
     int chapterIndex() const { return m_chapterIndex; }
     QString chapterTitle() const;
     int sleepMinutes() const { return m_sleepMinutes; }
+    int sleepRemaining() const;
+    bool sleepAtChapterEnd() const { return m_sleepAtChapterEnd; }
 
     QJsonArray chapters() const { return m_chapters; }
 
@@ -72,9 +79,12 @@ public:
     Q_INVOKABLE void setVolume(double volume);   // 0..1
     Q_INVOKABLE void stopAndClose();
 
-    // Sleep timer: setSleepTimer(0) cancels; cycleSleepTimer() steps through the
-    // off/15/30/60-minute presets. On expiry playback is paused (not closed).
+    // Sleep timer: setSleepTimer(0) cancels; setSleepAtChapterEnd() pauses when
+    // the chapter playing now ends; cycleSleepTimer() steps through off, the
+    // 15/30/60-minute presets and (for books with chapters) end of chapter. On
+    // expiry playback is paused (not closed).
     Q_INVOKABLE void setSleepTimer(int minutes);
+    Q_INVOKABLE void setSleepAtChapterEnd();
     Q_INVOKABLE void cycleSleepTimer();
 
     // Called on session switch/stop to flush a final sync + close. On app
@@ -91,6 +101,7 @@ signals:
     void volumeChanged();
     void chapterChanged();
     void sleepTimerChanged();
+    void sleepRemainingChanged();
     void playbackError(const QString &message);
 
 private:
@@ -106,6 +117,15 @@ private:
     // Requests a sync a short moment from now, collapsing a burst of seeks into
     // one request. Any sync that goes out for another reason cancels it.
     void scheduleSync();
+    // Sleep timer helpers. The minutes countdown is held while nothing is audible
+    // (paused or buffering) and resumed when playback is.
+    void holdSleepCountdown();
+    void resumeSleepCountdown();
+    // Cancels any sleep timer; returns true if one was set.
+    bool clearSleepTimer();
+    // Where "end of chapter" falls for a given position: the end of the chapter
+    // containing it, else the start of the next chapter, else the end of the book.
+    double chapterEndFor(double globalSeconds) const;
 
     struct Track {
         int index = 0;
@@ -121,7 +141,11 @@ private:
     QTimer          m_syncTimer;
     QTimer          m_seekSyncTimer;   // coalesces a burst of seeks into one sync
     QTimer          m_sleepTimer;      // fires once; pauses playback on expiry
+    QTimer          m_sleepTick;       // refreshes sleepRemaining once a second
     int             m_sleepMinutes = 0; // configured sleep duration (0 == off)
+    qint64          m_sleepRemainingMs = 0; // countdown left while it is held
+    bool            m_sleepAtChapterEnd = false;
+    double          m_sleepChapterEnd = 0.0; // global seconds to pause at
 
     bool     m_active = false;
     bool     m_playing = false;

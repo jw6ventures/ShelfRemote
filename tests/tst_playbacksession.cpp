@@ -105,6 +105,16 @@ private:
             {QStringLiteral("duration"), 2000.0},
             {QStringLiteral("displayTitle"), QStringLiteral("A Book")},
             {QStringLiteral("currentTime"), 0.0},
+            {QStringLiteral("chapters"), QJsonArray{
+                QJsonObject{{QStringLiteral("start"), 0.0},
+                            {QStringLiteral("end"), 600.0},
+                            {QStringLiteral("title"), QStringLiteral("One")}},
+                QJsonObject{{QStringLiteral("start"), 600.0},
+                            {QStringLiteral("end"), 1400.0},
+                            {QStringLiteral("title"), QStringLiteral("Two")}},
+                QJsonObject{{QStringLiteral("start"), 1400.0},
+                            {QStringLiteral("end"), 2000.0},
+                            {QStringLiteral("title"), QStringLiteral("Three")}}}},
             {QStringLiteral("audioTracks"), QJsonArray{
                 QJsonObject{{QStringLiteral("index"), 0},
                             {QStringLiteral("startOffset"), 0.0},
@@ -196,6 +206,114 @@ private slots:
         QTest::qWait(1500);
         QCOMPARE(server.syncCount, 0);
         QCOMPARE(server.closeCount, 1);
+    }
+
+    // A sleep timer stops the book after that much *listening*. Time spent paused
+    // (or stalled buffering) must not count, or a break longer than the timer
+    // silently uses it up.
+    void sleepCountdownHoldsWhileNotPlaying()
+    {
+        FakeServer server;
+        QVERIFY(server.start());
+        ApiClient api;
+        api.setBaseUrl(server.baseUrl());
+        MpvController mpv;
+        PlaybackSession session(&api, &mpv);
+
+        session.playItem(QStringLiteral("item-1"));
+        QTRY_VERIFY_WITH_TIMEOUT(session.active(), 3000);
+
+        session.setSleepTimer(15);
+        QCOMPARE(session.sleepMinutes(), 15);
+        QCOMPARE(session.sleepRemaining(), 15 * 60);
+
+        // Not playing yet: the countdown is held.
+        QTest::qWait(1200);
+        QCOMPARE(session.sleepRemaining(), 15 * 60);
+
+        // Audible: it runs.
+        emit mpv.playingChanged(true);
+        QTRY_VERIFY_WITH_TIMEOUT(session.sleepRemaining() < 15 * 60, 2500);
+
+        // Paused again: it holds where it got to.
+        emit mpv.playingChanged(false);
+        const int held = session.sleepRemaining();
+        QTest::qWait(1200);
+        QCOMPARE(session.sleepRemaining(), held);
+
+        session.setSleepTimer(0);
+        QCOMPARE(session.sleepMinutes(), 0);
+        QCOMPARE(session.sleepRemaining(), 0);
+    }
+
+    void sleepTimerNeedsAnOpenSession()
+    {
+        ApiClient api;
+        MpvController mpv;
+        PlaybackSession session(&api, &mpv);
+        // Set before anything plays, it would otherwise carry into the next book.
+        session.setSleepTimer(30);
+        QCOMPARE(session.sleepMinutes(), 0);
+        session.setSleepAtChapterEnd();
+        QVERIFY(!session.sleepAtChapterEnd());
+    }
+
+    void cycleReachesEndOfChapterThenOff()
+    {
+        FakeServer server;
+        QVERIFY(server.start());
+        ApiClient api;
+        api.setBaseUrl(server.baseUrl());
+        MpvController mpv;
+        PlaybackSession session(&api, &mpv);
+
+        session.playItem(QStringLiteral("item-1"));
+        QTRY_VERIFY_WITH_TIMEOUT(session.active(), 3000);
+
+        session.cycleSleepTimer();
+        QCOMPARE(session.sleepMinutes(), 15);
+        session.cycleSleepTimer();
+        QCOMPARE(session.sleepMinutes(), 30);
+        session.cycleSleepTimer();
+        QCOMPARE(session.sleepMinutes(), 60);
+        session.cycleSleepTimer();
+        QCOMPARE(session.sleepMinutes(), 0);
+        QVERIFY(session.sleepAtChapterEnd());
+        session.cycleSleepTimer();
+        QVERIFY(!session.sleepAtChapterEnd());
+        QCOMPARE(session.sleepMinutes(), 0);
+    }
+
+    // "End of chapter" stops at the end of the chapter being listened to — the one
+    // the user jumped into, not the one playing when it was set — and leaves the
+    // position on the boundary so resuming starts the next chapter cleanly.
+    void endOfChapterStopsAtTheBoundaryOfTheChapterListenedTo()
+    {
+        FakeServer server;
+        QVERIFY(server.start());
+        ApiClient api;
+        api.setBaseUrl(server.baseUrl());
+        MpvController mpv;
+        PlaybackSession session(&api, &mpv);
+
+        session.playItem(QStringLiteral("item-1"));
+        QTRY_VERIFY_WITH_TIMEOUT(session.active(), 3000);
+
+        session.setSleepAtChapterEnd();
+        QVERIFY(session.sleepAtChapterEnd());
+
+        // Jump into chapter two, on the second file (which starts at 1000s).
+        session.seekGlobal(1100.0);
+        QCOMPARE(session.chapterIndex(), 1);
+
+        // Playing on within chapter two, already past chapter one's end (600s)…
+        emit mpv.positionChanged(1150.0 - 1000.0);
+        QVERIFY(session.sleepAtChapterEnd());
+
+        // …and stopping once playback crosses chapter two's end.
+        emit mpv.positionChanged(1400.2 - 1000.0);
+        QVERIFY(!session.sleepAtChapterEnd());
+        QCOMPARE(session.position(), 1400.0);
     }
 };
 
