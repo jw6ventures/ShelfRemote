@@ -130,6 +130,11 @@ int main(int argc, char *argv[])
     auto *bookmarks = new BookmarkStore(api, &app);
     auto *settings = new AppSettings(&app);
     auto *debugLog = new DebugLog(&app);
+    // Home's Playlist Next Up shelf follows its setting.
+    backend->setPlaylistNextUpEnabled(settings->playlistNextUp());
+    QObject::connect(settings, &AppSettings::playlistNextUpChanged, backend, [=]() {
+        backend->setPlaylistNextUpEnabled(settings->playlistNextUp());
+    });
 
     auto *mpv = new MpvController(&app);
     if (!mpv->init())

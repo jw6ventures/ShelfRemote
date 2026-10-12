@@ -181,6 +181,83 @@ private slots:
         QCOMPARE(finished.count(), 1);
         QCOMPARE(finished.at(0).at(1).toBool(), false);
     }
+
+    // One card per picked playlist: the book in progress on it if there is one,
+    // else the first unfinished book. Finished-through playlists and playlists
+    // nobody picked contribute nothing.
+    void playlistNextUpPicksTheNextBook()
+    {
+        ApiClient api;
+        ProgressStore progress;
+        Backend backend(&api);
+        backend.setProgressStore(&progress);
+
+        auto book = [](const char *id) {
+            return QJsonObject{
+                {QStringLiteral("libraryItemId"), QString::fromLatin1(id)},
+                {QStringLiteral("libraryItem"), QJsonObject{
+                    {QStringLiteral("id"), QString::fromLatin1(id)},
+                    {QStringLiteral("media"), QJsonObject{
+                        {QStringLiteral("metadata"), QJsonObject{
+                            {QStringLiteral("title"), QString::fromLatin1(id)}}}}}}}};
+        };
+        auto playlist = [](const char *id, const char *name, const QJsonArray &items) {
+            return QJsonObject{{QStringLiteral("id"), QString::fromLatin1(id)},
+                               {QStringLiteral("name"), QString::fromLatin1(name)},
+                               {QStringLiteral("items"), items}};
+        };
+        backend.playlists()->setPlaylists(QJsonArray{
+            playlist("pl-unread", "Unread", QJsonArray{book("u1"), book("u2"), book("u3")}),
+            playlist("pl-reading", "Reading", QJsonArray{book("r1"), book("r2"), book("r3")}),
+            playlist("pl-done", "Done", QJsonArray{book("d1")}),
+            playlist("pl-ignored", "Ignored", QJsonArray{book("i1")}),
+        });
+        progress.set(QStringLiteral("u1"), 1.0, 3600.0, true);   // finished
+        progress.set(QStringLiteral("r1"), 1.0, 3600.0, true);   // finished
+        progress.set(QStringLiteral("r3"), 0.4, 1200.0, false);  // in progress, after unread r2
+        progress.set(QStringLiteral("d1"), 1.0, 3600.0, true);
+
+        ShelfModel *shelves = backend.homeShelves();
+        auto nextUp = [shelves]() -> QVariantList {
+            for (int row = 0; row < shelves->rowCount(); ++row) {
+                const QModelIndex idx = shelves->index(row, 0);
+                if (shelves->data(idx, ShelfModel::ShelfTypeRole).toString() ==
+                    QLatin1String("playlistNextUp"))
+                    return shelves->data(idx, ShelfModel::ItemsRole).toList();
+            }
+            return {};
+        };
+
+        backend.setNextUpPlaylist(QStringLiteral("pl-unread"), true);
+        backend.setNextUpPlaylist(QStringLiteral("pl-reading"), true);
+        backend.setNextUpPlaylist(QStringLiteral("pl-done"), true);
+        // Picked, but the setting itself is off: no shelf.
+        QVERIFY(nextUp().isEmpty());
+
+        backend.setPlaylistNextUpEnabled(true);
+        QVariantList cards = nextUp();
+        QCOMPARE(cards.size(), 2);
+        QCOMPARE(cards.at(0).toMap().value(QStringLiteral("itemId")).toString(),
+                 QStringLiteral("u2"));
+        QCOMPARE(cards.at(0).toMap().value(QStringLiteral("author")).toString(),
+                 QStringLiteral("Unread"));
+        QCOMPARE(cards.at(1).toMap().value(QStringLiteral("itemId")).toString(),
+                 QStringLiteral("r3"));
+
+        // Finishing a book moves its playlist on.
+        progress.set(QStringLiteral("u2"), 1.0, 3600.0, true);
+        QCOMPARE(nextUp().at(0).toMap().value(QStringLiteral("itemId")).toString(),
+                 QStringLiteral("u3"));
+
+        backend.setNextUpPlaylist(QStringLiteral("pl-unread"), false);
+        cards = nextUp();
+        QCOMPARE(cards.size(), 1);
+        QCOMPARE(cards.at(0).toMap().value(QStringLiteral("itemId")).toString(),
+                 QStringLiteral("r3"));
+
+        backend.setPlaylistNextUpEnabled(false);
+        QVERIFY(nextUp().isEmpty());
+    }
 };
 
 QTEST_GUILESS_MAIN(TstBackend)

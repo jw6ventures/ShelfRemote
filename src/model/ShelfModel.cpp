@@ -7,16 +7,44 @@ ShelfModel::ShelfModel(QObject *parent)
 {
 }
 
+namespace {
+const QString kNextUpType = QStringLiteral("playlistNextUp");
+} // namespace
+
 int ShelfModel::rowCount(const QModelIndex &parent) const
 {
-    return parent.isValid() ? 0 : m_shelves.size();
+    if (parent.isValid())
+        return 0;
+    return m_shelves.size() + (m_nextUp.isEmpty() ? 0 : 1);
+}
+
+int ShelfModel::nextUpRow() const
+{
+    if (m_nextUp.isEmpty())
+        return -1;
+    for (int i = 0; i < m_shelves.size(); ++i) {
+        if (m_shelves.at(i).toObject().value(QStringLiteral("id")).toString() ==
+            QLatin1String("continue-listening"))
+            return i + 1;
+    }
+    return 0;
 }
 
 QVariant ShelfModel::data(const QModelIndex &index, int role) const
 {
-    if (!index.isValid() || index.row() >= m_shelves.size())
+    if (!index.isValid() || index.row() >= rowCount())
         return {};
-    const QJsonObject shelf = m_shelves.at(index.row()).toObject();
+    const int nextUp = nextUpRow();
+    if (index.row() == nextUp) {
+        switch (role) {
+        case LabelRole:     return QStringLiteral("Playlist Next Up");
+        case ShelfTypeRole: return kNextUpType;
+        case ItemsRole:     return m_nextUp;
+        default:            return {};
+        }
+    }
+    const int shelfRow = nextUp >= 0 && index.row() > nextUp ? index.row() - 1 : index.row();
+    const QJsonObject shelf = m_shelves.at(shelfRow).toObject();
     switch (role) {
     case LabelRole:     return shelf.value(QStringLiteral("label")).toString();
     case ShelfTypeRole: return shelf.value(QStringLiteral("type")).toString();
@@ -96,4 +124,31 @@ void ShelfModel::setShelves(const QJsonArray &shelves)
     beginResetModel();
     m_shelves = shelves;
     endResetModel();
+}
+
+void ShelfModel::setPlaylistNextUp(const QVariantList &items)
+{
+    if (items == m_nextUp)
+        return;
+    const int oldRow = nextUpRow();
+    if (items.isEmpty()) {
+        beginRemoveRows({}, oldRow, oldRow);
+        m_nextUp.clear();
+        endRemoveRows();
+        return;
+    }
+    if (oldRow < 0) {
+        // Work out where it lands before it holds anything: nextUpRow() reports -1
+        // while the list is empty.
+        m_nextUp = items;
+        const int row = nextUpRow();
+        m_nextUp.clear();
+        beginInsertRows({}, row, row);
+        m_nextUp = items;
+        endInsertRows();
+        return;
+    }
+    m_nextUp = items;
+    const QModelIndex idx = index(oldRow, 0);
+    emit dataChanged(idx, idx, {ItemsRole});
 }

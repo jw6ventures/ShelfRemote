@@ -2,6 +2,7 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QSignalSpy>
 
 #include "model/ShelfModel.h"
 
@@ -111,6 +112,63 @@ private slots:
         const QVariantMap e = shelfItems(m, 0).first().toMap();
         QCOMPARE(e.value("kind").toString(), QStringLiteral("episode"));
         QCOMPARE(e.value("episodeId").toString(), QStringLiteral("ep1"));
+    }
+
+    // The Playlist Next Up shelf sits directly under Continue Listening, and the
+    // server's shelves keep their order around it.
+    void nextUpSitsUnderContinueListening()
+    {
+        ShelfModel m;
+        m.setShelves(QJsonArray{
+            QJsonObject{{"id", "continue-listening"}, {"label", "Continue Listening"},
+                        {"type", "book"}, {"entities", QJsonArray{}}},
+            QJsonObject{{"id", "recently-added"}, {"label", "Recently Added"},
+                        {"type", "book"}, {"entities", QJsonArray{}}}});
+        m.setPlaylistNextUp(QVariantList{QVariantMap{{"itemId", "b1"}}});
+
+        QCOMPARE(m.rowCount(), 3);
+        QCOMPARE(m.data(m.index(0, 0), ShelfModel::LabelRole).toString(),
+                 QStringLiteral("Continue Listening"));
+        QCOMPARE(m.data(m.index(1, 0), ShelfModel::LabelRole).toString(),
+                 QStringLiteral("Playlist Next Up"));
+        QCOMPARE(shelfItems(m, 1).first().toMap().value("itemId").toString(),
+                 QStringLiteral("b1"));
+        QCOMPARE(m.data(m.index(2, 0), ShelfModel::LabelRole).toString(),
+                 QStringLiteral("Recently Added"));
+
+        m.setPlaylistNextUp({});
+        QCOMPARE(m.rowCount(), 2);
+        QCOMPARE(m.data(m.index(1, 0), ShelfModel::LabelRole).toString(),
+                 QStringLiteral("Recently Added"));
+    }
+
+    void nextUpLeadsWithoutContinueListening()
+    {
+        ShelfModel m;
+        m.setShelves(QJsonArray{QJsonObject{{"id", "recently-added"}, {"label", "Recently Added"},
+                                            {"type", "book"}, {"entities", QJsonArray{}}}});
+        m.setPlaylistNextUp(QVariantList{QVariantMap{{"itemId", "b1"}}});
+        QCOMPARE(m.rowCount(), 2);
+        QCOMPARE(m.data(m.index(0, 0), ShelfModel::LabelRole).toString(),
+                 QStringLiteral("Playlist Next Up"));
+    }
+
+    // A reset would throw Home's cursor back to the first shelf every time a
+    // book's progress moved, so changes to the shelf must stay row-local.
+    void nextUpChangesInPlace()
+    {
+        ShelfModel m;
+        m.setPlaylistNextUp(QVariantList{QVariantMap{{"itemId", "b1"}}});
+        QSignalSpy resets(&m, &QAbstractItemModel::modelReset);
+        QSignalSpy changed(&m, &QAbstractItemModel::dataChanged);
+
+        m.setPlaylistNextUp(QVariantList{QVariantMap{{"itemId", "b2"}}});
+        QCOMPARE(resets.count(), 0);
+        QCOMPARE(changed.count(), 1);
+
+        // The same cards again is not a change at all.
+        m.setPlaylistNextUp(QVariantList{QVariantMap{{"itemId", "b2"}}});
+        QCOMPARE(changed.count(), 1);
     }
 };
 

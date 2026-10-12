@@ -24,7 +24,7 @@ ApplicationWindow {
     // from the login screen's text fields and drop focus into the hidden shell.
     Shortcut {
         sequence: StandardKey.MoveToStartOfLine
-        enabled: Auth.isAuthenticated
+        enabled: Auth.isAuthenticated && !exitDialog.opened
         onActivated: sidebar.navigate("home")
     }
 
@@ -33,10 +33,15 @@ ApplicationWindow {
         sequences: [StandardKey.Cancel, StandardKey.Back]
         enabled: Auth.isAuthenticated
         onActivated: {
+            if (exitDialog.opened) { exitDialog.cancel(); return; }
             if (libraryPicker.opened) { libraryPicker.cancel(); return; }
             if (chapterPicker.opened) { chapterPicker.cancel(); return; }
             if (stack.depth > 1) stack.pop();
-            else if (contentRoot.visible) sidebar.focusSidebar();
+            else if (!contentRoot.visible) return;
+            // On Home the first Back goes to the rail, as on every other screen;
+            // Back again from the rail asks whether to leave the app.
+            else if (sidebar.activeFocus && sidebar.currentName === "home") exitDialog.open();
+            else sidebar.focusSidebar();
         }
     }
 
@@ -86,6 +91,15 @@ ApplicationWindow {
                 width: parent.width - sidebar.width
                 height: parent.height
                 initialItem: homeComp
+                // Opening a book, the player, or going Back swaps the screen in
+                // place, the same as picking a section from the rail, rather than
+                // sliding the old one off to the side.
+                pushEnter: Transition {}
+                pushExit: Transition {}
+                popEnter: Transition {}
+                popExit: Transition {}
+                replaceEnter: Transition {}
+                replaceExit: Transition {}
             }
         }
 
@@ -181,6 +195,13 @@ ApplicationWindow {
     LibraryPicker {
         id: libraryPicker
         onSelected: sidebar.navigate("home")
+        onDismissed: sidebar.focusSidebar()
+    }
+
+    // "Exit ShelfRemote?" prompt. Dismissing it puts focus back on the rail,
+    // where the Back that opened it came from.
+    ExitDialog {
+        id: exitDialog
         onDismissed: sidebar.focusSidebar()
     }
 

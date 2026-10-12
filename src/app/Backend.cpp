@@ -25,6 +25,12 @@ QString lastLibraryKey(const QUrl &base)
 {
     return ServerProfile::idForUrl(base) + QStringLiteral("/lastLibraryId");
 }
+
+// Same reasoning for the playlists picked for Home's next-up shelf.
+QString nextUpPlaylistsKey(const QUrl &base)
+{
+    return ServerProfile::idForUrl(base) + QStringLiteral("/nextUpPlaylists");
+}
 } // namespace
 
 namespace {
@@ -63,10 +69,96 @@ Backend::Backend(ApiClient *api, QObject *parent)
 {
     m_libraryItems->setApi(api);
     m_searchResults->setApi(api);
+    connect(m_playlists, &QAbstractItemModel::modelReset, this, &Backend::updatePlaylistNextUp);
+}
+
+void Backend::setProgressStore(ProgressStore *progress)
+{
+    if (m_progress)
+        disconnect(m_progress, nullptr, this, nullptr);
+    m_progress = progress;
+    // Finishing or starting a book moves its playlist on to the next one.
+    if (m_progress)
+        connect(m_progress, &ProgressStore::changed, this, &Backend::updatePlaylistNextUp);
+    updatePlaylistNextUp();
+}
+
+void Backend::setPlaylistNextUpEnabled(bool enabled)
+{
+    if (enabled == m_playlistNextUpEnabled)
+        return;
+    m_playlistNextUpEnabled = enabled;
+    updatePlaylistNextUp();
+}
+
+void Backend::setNextUpPlaylist(const QString &playlistId, bool enabled)
+{
+    if (playlistId.isEmpty() || m_nextUpPlaylistIds.contains(playlistId) == enabled)
+        return;
+    if (enabled)
+        m_nextUpPlaylistIds.append(playlistId);
+    else
+        m_nextUpPlaylistIds.removeAll(playlistId);
+    Database::instance().putSetting(nextUpPlaylistsKey(m_api->baseUrl()),
+                                    m_nextUpPlaylistIds.join(QLatin1Char(',')));
+    emit nextUpPlaylistIdsChanged();
+    updatePlaylistNextUp();
+}
+
+void Backend::updatePlaylistNextUp()
+{
+    QVariantList cards;
+    if (m_playlistNextUpEnabled && !m_nextUpPlaylistIds.isEmpty()) {
+        for (int row = 0; row < m_playlists->rowCount(); ++row) {
+            const QModelIndex idx = m_playlists->index(row, 0);
+            if (!m_nextUpPlaylistIds.contains(
+                    m_playlists->data(idx, PlaylistModel::PlaylistIdRole).toString()))
+                continue;
+            const QVariantList entries =
+                m_playlists->data(idx, PlaylistModel::EntriesRole).toList();
+            QVariantMap unread;
+            QVariantMap inProgress;
+            for (const QVariant &v : entries) {
+                const QVariantMap entry = v.toMap();
+                // Progress is only tracked per library item, so an episode would
+                // always look unread; this shelf is for books.
+                if (entry.value(QStringLiteral("kind")).toString() != QLatin1String("book"))
+                    continue;
+                const QString itemId = entry.value(QStringLiteral("itemId")).toString();
+                if (m_progress && m_progress->isFinished(itemId))
+                    continue;
+                if (m_progress && (m_progress->fraction(itemId) > 0.0 ||
+                                   m_progress->currentTime(itemId) > 0.0)) {
+                    inProgress = entry;
+                    break;
+                }
+                if (unread.isEmpty())
+                    unread = entry;
+            }
+            QVariantMap card = inProgress.isEmpty() ? unread : inProgress;
+            if (card.isEmpty())
+                continue; // every book on it is finished
+            // The playlist, not the author, is what tells these cards apart.
+            card[QStringLiteral("author")] =
+                m_playlists->data(idx, PlaylistModel::NameRole).toString();
+            cards.push_back(card);
+        }
+    }
+    m_homeShelves->setPlaylistNextUp(cards);
 }
 
 void Backend::loadLibraries()
 {
+    // Called once signed in, which is when the server (and so the key) is known.
+    const QString savedNextUp =
+        Database::instance().getSetting(nextUpPlaylistsKey(m_api->baseUrl()));
+    const QStringList nextUp = savedNextUp.split(QLatin1Char(','), Qt::SkipEmptyParts);
+    if (nextUp != m_nextUpPlaylistIds) {
+        m_nextUpPlaylistIds = nextUp;
+        emit nextUpPlaylistIdsChanged();
+        updatePlaylistNextUp();
+    }
+
     const quint64 gen = m_serverGeneration;
     m_api->get(m_api->endpoints().libraries(), [this, gen](const ApiResponse &res) {
         if (res.stale || gen != m_serverGeneration)
@@ -109,6 +201,10 @@ void Backend::selectLibrary(const QString &libraryId)
 {
     if (libraryId.isEmpty())
         return;
+    // The old library's playlists would otherwise feed Home's next-up shelf until
+    // the new list arrives.
+    if (libraryId != m_currentLibraryId)
+        m_playlists->setPlaylists(QJsonArray());
     m_currentLibraryId = libraryId;
     Database::instance().putSetting(lastLibraryKey(m_api->baseUrl()), libraryId);
     emit currentLibraryChanged();
@@ -314,8 +410,12 @@ void Backend::reset()
     ++m_searchGeneration; // invalidate any in-flight search too
     m_currentLibraryId.clear();
     m_libraries.clear();
+    if (!m_nextUpPlaylistIds.isEmpty()) {
+        m_nextUpPlaylistIds.clear();
+        emit nextUpPlaylistIdsChanged();
+    }
     m_homeShelves->setShelves(QJsonArray());
-    m_playlists->setPlaylists(QJsonArray());
+    m_playlists->setPlaylists(QJsonArray()); // also empties the next-up shelf
     m_libraryItems->setItems(QJsonArray());
     m_searchResults->setItems(QJsonArray());
     emit librariesChanged();
