@@ -3,6 +3,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
+#include <QStringList>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -28,13 +29,20 @@ class Backend : public QObject
     Q_PROPERTY(PlaylistModel *playlists READ playlists CONSTANT)
     Q_PROPERTY(LibraryItemsModel *libraryItems READ libraryItems CONSTANT)
     Q_PROPERTY(LibraryItemsModel *searchResults READ searchResults CONSTANT)
+    // Playlists picked in Settings for Home's "Playlist Next Up" shelf. Saved per
+    // server, since playlist ids belong to one.
+    Q_PROPERTY(QStringList nextUpPlaylistIds READ nextUpPlaylistIds NOTIFY nextUpPlaylistIdsChanged)
 
 public:
     explicit Backend(ApiClient *api, QObject *parent = nullptr);
 
     // Optional: lets markFinished() reflect a change locally so browse cards update
-    // without a round-trip.
-    void setProgressStore(ProgressStore *progress) { m_progress = progress; }
+    // without a round-trip. Also what the Playlist Next Up shelf reads to tell a
+    // finished book from an unread one.
+    void setProgressStore(ProgressStore *progress);
+
+    // Mirrors the "Playlist Next Up on homepage" setting. Off, the shelf is hidden.
+    void setPlaylistNextUpEnabled(bool enabled);
 
     QVariantList libraries() const { return m_libraries; }
     QString currentLibraryId() const { return m_currentLibraryId; }
@@ -42,6 +50,7 @@ public:
     PlaylistModel *playlists() const { return m_playlists; }
     LibraryItemsModel *libraryItems() const { return m_libraryItems; }
     LibraryItemsModel *searchResults() const { return m_searchResults; }
+    QStringList nextUpPlaylistIds() const { return m_nextUpPlaylistIds; }
 
     Q_INVOKABLE void loadLibraries();
     Q_INVOKABLE void selectLibrary(const QString &libraryId);
@@ -57,6 +66,8 @@ public:
     Q_INVOKABLE void browseAuthor(const QString &authorId);
     Q_INVOKABLE void loadItem(const QString &itemId);
     Q_INVOKABLE void markFinished(const QString &itemId, bool finished);
+    // Adds or removes a playlist from the ones shown on Home's next-up shelf.
+    Q_INVOKABLE void setNextUpPlaylist(const QString &playlistId, bool enabled);
 
     // Clears all content state and invalidates in-flight responses. Called on
     // logout / server change so one server's data never bleeds into another's.
@@ -75,8 +86,13 @@ signals:
     // Emitted when a Home series/author card should switch the shell to the
     // (now filtered) library grid.
     void navigateToLibrary();
+    void nextUpPlaylistIdsChanged();
 
 private:
+    // Rebuilds Home's next-up shelf: one card per enabled playlist in the current
+    // library, holding the book in progress on it, or else the first unfinished one.
+    void updatePlaylistNextUp();
+
     // Folds an item payload's userMediaProgress into the shared ProgressStore.
     void applyItemProgress(const QString &itemId, const QJsonObject &item);
 
@@ -88,6 +104,8 @@ private:
     LibraryItemsModel *m_searchResults;
     QVariantList       m_libraries;
     QString            m_currentLibraryId;
+    QStringList        m_nextUpPlaylistIds;
+    bool               m_playlistNextUpEnabled = false;
     // Guards against an older /search response overwriting a newer query's results.
     quint64            m_searchGeneration = 0;
     // Bumped on reset() (logout / server change); every network callback drops its

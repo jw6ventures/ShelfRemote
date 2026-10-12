@@ -14,6 +14,7 @@ class AppSettings : public QObject
     Q_PROPERTY(int skipSeconds READ skipSeconds WRITE setSkipSeconds NOTIFY skipSecondsChanged)
     Q_PROPERTY(double defaultRate READ defaultRate WRITE setDefaultRate NOTIFY defaultRateChanged)
     Q_PROPERTY(QString audioDevice READ audioDevice WRITE setAudioDevice NOTIFY audioDeviceChanged)
+    Q_PROPERTY(bool playlistNextUp READ playlistNextUp WRITE setPlaylistNextUp NOTIFY playlistNextUpChanged)
 
 public:
     explicit AppSettings(QObject *parent = nullptr);
@@ -29,6 +30,11 @@ public:
     QString audioDevice() const { return m_audioDevice; }
     void setAudioDevice(const QString &name);
 
+    // Whether Home shows the "Playlist Next Up" shelf. Which playlists feed it is
+    // kept by Backend, per server. Handed to Backend by main.cpp.
+    bool playlistNextUp() const { return m_playlistNextUp; }
+    void setPlaylistNextUp(bool enabled);
+
     // The playback-rate step after `current`, wrapping to the slowest. Shared by
     // the Now Playing speed button and the default-rate setting so both offer the
     // same steps, and a rate set elsewhere (MPRIS) snaps onto them.
@@ -38,9 +44,11 @@ signals:
     void skipSecondsChanged();
     void defaultRateChanged();
     void audioDeviceChanged();
+    void playlistNextUpChanged();
 
 private:
     int     m_skipSeconds = 30;
     double  m_defaultRate = 1.0;
     QString m_audioDevice = QStringLiteral("auto");
+    bool    m_playlistNextUp = false;
 };

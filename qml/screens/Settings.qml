@@ -13,6 +13,17 @@ FocusScope {
     // only Esc got back out. Nothing on this screen uses Left itself.
     Keys.onLeftPressed: root.requestSidebar()
 
+    // Moves focus to playlist pick `index`; past either end it lands on the
+    // setting above (the on/off button) or below (cover cache).
+    function focusPlaylistPick(index) {
+        if (index < 0)
+            nextUpBtn.forceActiveFocus();
+        else if (index >= playlistPicks.count)
+            cacheBtn.forceActiveFocus();
+        else
+            playlistPicks.itemAt(index).forceActiveFocus();
+    }
+
     // ScrollArea rather than a bare Flickable: the rows run past the bottom of a
     // short screen, and moving focus down a plain Flickable does not scroll it —
     // "Sign out" took focus while staying off screen.
@@ -98,7 +109,7 @@ FocusScope {
                     }
                     text: descFor(AppSettings.audioDevice)
                     KeyNavigation.up: rateBtn
-                    KeyNavigation.down: cacheBtn
+                    KeyNavigation.down: nextUpBtn
                     onClicked: {
                         devices = Player.audioDevices();  // re-probe: sinks can appear later
                         if (devices.length === 0) return;
@@ -108,6 +119,70 @@ FocusScope {
                         var next = devices[(idx + 1) % devices.length];
                         AppSettings.audioDevice = next.name;  // persisted
                         Player.setAudioDevice(next.name);     // applied now
+                    }
+                }
+            }
+
+            // Playlist Next Up: a Home shelf holding the next book from each picked
+            // playlist. The playlists offered are the current library's; the
+            // picks are remembered per server.
+            Column {
+                spacing: Theme.spacingSmall
+                width: parent.width
+
+                Row {
+                    spacing: Theme.spacing
+                    Text {
+                        text: "Playlist Next Up on homepage"
+                        color: Theme.textPrimary
+                        font.pixelSize: Theme.fontBody
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 260
+                        wrapMode: Text.WordWrap
+                    }
+                    FocusButton {
+                        id: nextUpBtn
+                        text: AppSettings.playlistNextUp ? "On" : "Off"
+                        KeyNavigation.up: audioBtn
+                        Keys.onDownPressed: root.focusPlaylistPick(0)
+                        onClicked: {
+                            AppSettings.playlistNextUp = !AppSettings.playlistNextUp;
+                            // Make sure the list to pick from is current.
+                            if (AppSettings.playlistNextUp)
+                                Backend.refreshPlaylists();
+                        }
+                    }
+                }
+
+                Column {
+                    visible: AppSettings.playlistNextUp
+                    x: 260 + Theme.spacing
+                    width: parent.width - x
+                    spacing: Theme.spacingSmall
+
+                    // Rows are built per playlist, so Up/Down are wired by index
+                    // rather than with fixed KeyNavigation targets.
+                    Repeater {
+                        id: playlistPicks
+                        model: AppSettings.playlistNextUp ? Backend.playlists : null
+                        delegate: FocusButton {
+                            required property string playlistId
+                            required property string name
+                            required property int index
+                            readonly property bool picked:
+                                Backend.nextUpPlaylistIds.indexOf(playlistId) >= 0
+                            width: Math.min(parent.width, 480)
+                            text: (picked ? "☑  " : "☐  ") + name
+                            Keys.onUpPressed: root.focusPlaylistPick(index - 1)
+                            Keys.onDownPressed: root.focusPlaylistPick(index + 1)
+                            onClicked: Backend.setNextUpPlaylist(playlistId, !picked)
+                        }
+                    }
+                    Text {
+                        visible: playlistPicks.count === 0
+                        text: "No playlists in this library."
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.fontSmall
                     }
                 }
             }
@@ -128,7 +203,7 @@ FocusScope {
                     // Covers.cacheSizeBytes() call would not re-evaluate on its own).
                     property real mb: Covers.cacheSizeBytes() / 1048576
                     text: "Clear (" + mb.toFixed(1) + " MB)"
-                    KeyNavigation.up: audioBtn
+                    Keys.onUpPressed: root.focusPlaylistPick(playlistPicks.count - 1)
                     KeyNavigation.down: logBtn
                     onClicked: {
                         Covers.clearCache();

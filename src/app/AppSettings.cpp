@@ -27,6 +27,9 @@ AppSettings::AppSettings(QObject *parent)
                         .getSetting(QStringLiteral("audioDevice"), QStringLiteral("auto"));
     if (m_audioDevice.isEmpty())
         m_audioDevice = QStringLiteral("auto");
+
+    m_playlistNextUp = Database::instance()
+                           .getSetting(QStringLiteral("playlistNextUp")) == QLatin1String("1");
 }
 
 void AppSettings::setSkipSeconds(int seconds)
@@ -64,4 +67,14 @@ void AppSettings::setAudioDevice(const QString &name)
     m_audioDevice = n;
     Database::instance().putSetting(QStringLiteral("audioDevice"), n);
     emit audioDeviceChanged();
+}
+
+void AppSettings::setPlaylistNextUp(bool enabled)
+{
+    if (enabled == m_playlistNextUp)
+        return;
+    m_playlistNextUp = enabled;
+    Database::instance().putSetting(QStringLiteral("playlistNextUp"),
+                                    enabled ? QStringLiteral("1") : QStringLiteral("0"));
+    emit playlistNextUpChanged();
 }

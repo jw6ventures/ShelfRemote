@@ -16,7 +16,14 @@ FocusScope {
     // True when Home is the visible screen in the StackView.
     readonly property bool isActiveScreen: StackView.status === StackView.Active
 
-    Component.onCompleted: { Backend.refreshHome(); shelvesList.forceActiveFocus(); }
+    Component.onCompleted: {
+        Backend.refreshHome();
+        // The Playlist Next Up shelf is built from the playlists; pick up edits
+        // made on the server since they were last loaded.
+        if (AppSettings.playlistNextUp)
+            Backend.refreshPlaylists();
+        shelvesList.forceActiveFocus();
+    }
     // Re-assert focus whenever this screen becomes active again.
     onActiveFocusChanged: if (activeFocus) shelvesList.forceActiveFocus()
 

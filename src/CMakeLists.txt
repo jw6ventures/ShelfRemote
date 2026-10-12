@@ -68,6 +68,7 @@ set(SHELFREMOTE_QML_FILES
     ../qml/components/FocusButton.qml
     ../qml/components/LibraryPicker.qml
     ../qml/components/ChapterPicker.qml
+    ../qml/components/ExitDialog.qml
     ../qml/components/ScrollArea.qml
 )
 foreach(qml_file ${SHELFREMOTE_QML_FILES})

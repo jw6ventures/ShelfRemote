@@ -11,6 +11,8 @@ ShelfRemote is an unofficial Audiobookshelf client and not affiliated with Audio
 - Server discovery, multiple saved servers, encrypted token storage
 - Home shelves, playlists, library grid with sort, on-screen-keyboard search,
   item details
+- Optional "Playlist Next Up" Home shelf: the book in progress, or the next
+  unfinished one, from each playlist picked in Settings
 - Streaming playback via libmpv: multi-file direct play **and** HLS transcode,
   global-timeline seeking, chapters with a chapter picker, speed, sleep timer
   (minutes or end of chapter, counting only while listening)

@@ -30,6 +30,15 @@
   </categories>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.1.6" date="2026-10-12">
+        <description>
+          <ul>
+            <li>Adds an optional Playlist Next Up row to Home, showing the book in progress or the next unfinished one from each playlist picked in Settings.</li>
+            <li>Asks before exiting when Back is pressed from the sidebar on Home.</li>
+            <li>Opening a book, starting playback and going back now switch screens instantly instead of sliding.</li>
+          </ul>
+        </description>
+    </release>
     <release version="0.1.5" date="2026-10-02">
         <description>
           <ul>
