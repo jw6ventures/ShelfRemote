@@ -30,6 +30,14 @@
   </categories>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.1.7" date="2026-10-21">
+        <description>
+          <ul>
+            <li>Opening a playlist now selects its first unfinished book instead of the top of the list.</li>
+            <li>Playlist books show the finished badge and progress bar used on Home and Library.</li>
+          </ul>
+        </description>
+    </release>
     <release version="0.1.6" date="2026-10-12">
         <description>
           <ul>
