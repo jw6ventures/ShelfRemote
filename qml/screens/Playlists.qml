@@ -26,6 +26,18 @@ FocusScope {
         }
     }
 
+    // Where a playlist opens: the first entry not marked finished, so a series
+    // picks up at the next book instead of the top. Episode progress is not
+    // tracked, so an episode always counts as unread. Falls back to the top when
+    // everything is finished.
+    function firstUnreadIndex(entries) {
+        for (let i = 0; i < entries.length; ++i) {
+            if (!Progress.isFinished(entries[i].itemId))
+                return i;
+        }
+        return entries.length > 0 ? 0 : -1;
+    }
+
     function enterItems() {
         if (itemList.count > 0) {
             if (itemList.currentIndex < 0)
@@ -206,7 +218,11 @@ FocusScope {
                         spacing: Theme.spacingSmall
                         keyNavigationEnabled: true
                         boundsBehavior: Flickable.StopAtBounds
-                        onModelChanged: currentIndex = count > 0 ? 0 : -1
+                        onModelChanged: {
+                            currentIndex = root.firstUnreadIndex(root.selectedEntries);
+                            if (currentIndex >= 0)
+                                positionViewAtIndex(currentIndex, ListView.Beginning);
+                        }
 
                         Keys.onLeftPressed: function(event) {
                             playlistList.forceActiveFocus();
@@ -228,10 +244,24 @@ FocusScope {
                                     modelData.coverId, 120, 120);
                             }
 
+                            // Progress is tracked per library item, so only books
+                            // show it; an episode would read its podcast's progress.
+                            readonly property bool isBook: modelData.kind !== "episode"
+                            property real progress: 0.0
+                            property bool finished: false
+                            function refreshProgress() {
+                                progress = isBook ? Progress.fraction(modelData.itemId) : 0.0;
+                                finished = isBook && Progress.isFinished(modelData.itemId);
+                            }
+
                             width: itemList.width
                             height: 104
                             focus: ListView.isCurrentItem
-                            Component.onCompleted: refreshCover()
+                            Component.onCompleted: { refreshCover(); refreshProgress(); }
+                            Connections {
+                                target: Progress
+                                function onChanged() { itemDelegate.refreshProgress(); }
+                            }
                             Connections {
                                 target: Covers
                                 function onCoverReady(readyId, fileUrl) {
@@ -267,6 +297,31 @@ FocusScope {
                                             fillMode: Image.PreserveAspectCrop
                                             asynchronous: true
                                         }
+
+                                        // Completed badge, as on Home and Library cards.
+                                        Rectangle {
+                                            visible: itemDelegate.finished
+                                            anchors.top: parent.top
+                                            anchors.right: parent.right
+                                            anchors.margins: 4
+                                            width: 24; height: 24; radius: 12
+                                            color: Theme.progress
+                                            Text { anchors.centerIn: parent; text: "✓"; color: "#0e1013"
+                                                   font.pixelSize: 16; font.bold: true }
+                                        }
+                                        // In-progress bar (hidden when finished).
+                                        Rectangle {
+                                            visible: !itemDelegate.finished && itemDelegate.progress > 0
+                                            anchors.left: parent.left; anchors.right: parent.right
+                                            anchors.bottom: parent.bottom
+                                            height: 6
+                                            color: "#88000000"
+                                            Rectangle {
+                                                height: parent.height
+                                                width: parent.width * Math.min(1, itemDelegate.progress)
+                                                color: Theme.progress
+                                            }
+                                        }
                                     }
 
                                     Column {
@@ -295,7 +350,9 @@ FocusScope {
                                         }
                                         Text {
                                             text: itemDelegate.modelData.kind === "episode"
-                                                  ? "Podcast episode" : "Audiobook"
+                                                  ? "Podcast episode"
+                                                  : itemDelegate.finished ? "Audiobook · Finished"
+                                                                          : "Audiobook"
                                             color: itemDelegate.activeFocus
                                                    ? "#e8f1ff" : Theme.textMuted
                                             font.pixelSize: Theme.fontSmall
